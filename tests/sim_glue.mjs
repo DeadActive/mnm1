@@ -363,3 +363,14 @@ test('published page: every local file it loads carries the build stamp (?v=), s
   }
   assert.ok(js.includes(`worklet.js?v=${stamp}`) && js.includes(`fm1sim.wasm?v=${stamp}`));
 });
+
+test('every local import of the page\'s scripts names a file that ships (a missing one breaks the audio worklet)', () => {
+  const dir = 'web/sim';
+  for (const f of readdirSync(dir).filter(n => n.endsWith('.js'))) {
+    const src = readFileSync(join(dir, f), 'utf8');
+    for (const [, path] of src.matchAll(/(?:^|\n)\s*import\s[^'"]*['"](\.\/[^'"?]+)/g))
+      assert.ok(readdirSync(dir).includes(path.slice(2)), `${f} imports ${path}, which is not in web/sim`);
+    for (const [, path] of src.matchAll(/import\(['"](\.\/[^'"?]+)/g))
+      assert.ok(readdirSync(dir).includes(path.slice(2)), `${f} imports ${path}, which is not in web/sim`);
+  }
+});
