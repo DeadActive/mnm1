@@ -1,0 +1,51 @@
+# Versions of the drum firmware
+
+The drum firmware is numbered `MAJOR.MINOR.PATCH`, starting at **0.5.0** (2026-10-06). The number lives in one
+place, the file `VERSION.txt` at the top of the repository; `CHANGELOG.md` says what each version changed.
+
+## What changes which number
+
+- **PATCH** (0.5.0 → 0.5.1): fixes only. No new feature, no new control; projects and settings stay as they are.
+- **MINOR** (0.5.1 → 0.6.0): a new feature or control, or a new project format that still loads the older
+  projects (e.g. FDR7 for the song chain). Most roadmap steps are minors.
+- **MAJOR** (0.x → 1.0.0, 1.x → 2.0.0): projects or settings saved by the previous version no longer load, or the
+  controls change so much that old habits break. 1.0.0 is also the version the user declares finished and stable;
+  until then the major stays 0.
+
+A merge with both fixes and a feature is a minor. Upstream Felucca's own numbers (its `v1.0.2` tags, `--release
+X.Y` builds) are separate and unchanged.
+
+## Where it shows
+
+- The FM-1: MENU → ABOUT shows `DRUM-<version>`; the USB console (`status`, the greeting) prints it too.
+- The local web installer (`build/site`): `drum-<version>+<commit>`, with `-dirty` when the source had
+  uncommitted changes. Between versions, builds keep the last version and differ by the commit.
+- Git: the local tag `drum-v<version>` on the commit that set it (upstream's `v*` tags are a different line).
+
+## Releasing a version (when work is merged to `main`)
+
+1. Add a line per user-visible change under `## Unreleased` in `CHANGELOG.md`.
+2. `python3 tools/version.py bump patch` (or `minor` / `major`): writes `VERSION.txt`, dates the notes.
+3. Commit `VERSION.txt` and `CHANGELOG.md`, then `git tag drum-v<version>`.
+4. `DRUM_PACKAGE=1 ./build.sh`: the package and `build/site` carry the new number; the host suite checks it
+   (`tools/version.py check build`).
+
+## Publishing (github.com/DeadActive/hortator)
+
+`tools/publish.sh [drum-vX.Y.Z]` (default: the tag of `VERSION.txt`), run here after the tag is made; nothing is
+built in the cloud:
+
+1. builds exactly the tag in its own checkout (`build/publish/src`): the simulator (`tools/build_sim.sh`, Docker) and
+   the package with the site (`DRUM_PACKAGE=1 ./build.sh`);
+2. pushes `main` and the tag to `origin`;
+3. makes the GitHub release "Hortator X.Y.Z": `hortator-X.Y.Z.fwsc`, `LICENSE`, `LICENSING.md`, `LICENSES.zip`, the
+   version's notes from `CHANGELOG.md` (run again: the files are replaced);
+4. puts that build's site (landing page with the simulator, the web installer, the editor) on the `gh-pages` branch:
+   GitHub Pages, https://deadactive.github.io/hortator/.
+
+`BLE=1 tools/publish.sh …` publishes two versions: the same build with Bluetooth MIDI too (`FELUCCA_BLE=1`, every
+Bluetooth gate), as `hortator-X.Y.Z-bluetooth.fwsc` in the release and a choice in the web installer (the plain
+version is the default). The Bluetooth package now carries parts 2, 3 and 5 (the Bluetooth page and MIDI in, MIDI
+out, the SMC-Mixer DAW mode; part 4, MIDI learn, is not in it); the first two-version release (`BLE=1`) is the one
+that brings them.
+Locally, `DRUM_PACKAGE=1 DRUM_BUNDLE=1 ./build.sh` makes both packages and the two-version `build/site`.

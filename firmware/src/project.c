@@ -1,0 +1,583 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+ * Drum machine fork: 2026 DEADACTIVE */
+/* Projects: four slots in .noinit RAM, so they survive resets and UBOOT entry. With FELUCCA_FLASH
+ * every save also goes to flash through storage.c, and an empty RAM slot is filled from flash.
+ * Format "MNM3" (MNM-1 0.5's: 240 PARAMETER LOCKS in the motion store; 0.4's "MNM2", the FILTER, EFFECTS and three
+ * LFOs, and older records load as empty), after Hortator's last layout ("FDRE"): the globals, the selected track, per track every parameter
+ * and its 64 steps (PROB / RATCH, each step's note, SLIDE and TIE), the motion (motion.c, 128 events), the song and the
+ * project's name (song.c), each track's preset id and edited mark (presets.c). The slots of Hortator's LAYER and RESON
+ * are MNM-1's AMP, FILTER WIDTH / ATTACK, SRR, LEN and ARP, so no Hortator record ("FDR1".."FDRE") is read: a slot
+ * holding one loads as empty. The record fills a flash sector's payload (3840 B, ST_PAYLOAD_MAX); the parameters after
+ * its block (P_NSTORED .., the ARP's CHORD) ride in a track's steps' spare byte (step_t.rsv: parameter P_NSTORED + j
+ * in step j's, 0..255).
+ * Felucca's formats ("FUN1".."FUN3") are not read. Settings + the panel table: as in Felucca. */
+#define PROJ_MAGIC 0x334D4E4Du                 /* "MNM3": MNM-1's (Hortator's FDRE layout, its LAYER and RESON slots the
+                                                 * AMP, FILTER, SRR, LEN and ARP: a Hortator record is never read) */
+typedef struct {
+    int16_t p[P_NSTORED];                       /* the block; P_NSTORED + j: step[j].rsv (proj_xp_*) */
+    step_t step[NSTEP];
+} proj_trk_t;
+typedef char proj_xp_fit[P_COUNT - P_NSTORED <= NSTEP ? 1 : -1];
+/* the parameters past the block: into / out of a stored track's steps' spare bytes (0 = their value 0) */
+static void proj_xp_put(proj_trk_t *s, const int16_t *p)
+{
+    uint32_t i;
+    for (i = P_NSTORED; i < P_COUNT; i++)
+        s->step[i - P_NSTORED].rsv = (uint8_t)clamp(p[i], 0, 255);
+}
+static int16_t proj_xp_get(const proj_trk_t *s, uint32_t id) { return (int16_t)s->step[id - P_NSTORED].rsv; }
+typedef struct {
+    uint32_t magic, size;
+    int16_t g[G_COUNT];
+    uint8_t sel, rsv[3];
+    proj_trk_t t[NTRK];
+    motion_store_t motion;                      /* FDR8: the motion (motion.c; MNM-1 0.5: the locks, 240) */
+    chain_config_t song;                        /* FDR9: the song (song.c) */
+    char name[NAME_LEN];                        /* FDR9: the name (NAME_SET, 0-padded; "" = none) */
+    uint16_t pre[NTRK];                         /* FDRD: each track's preset: a factory one's uid, 0x8000 | a user
+                                                 * slot, PRE_NONE none (presets.c preset_rec_enc: not the id) */
+    uint8_t pre_ed[NTRK];                       /* FDRD: .. edited since (0 / 1) */
+    uint32_t sum;
+} project_t;
+typedef char project_size[sizeof(project_t) <= 3840u ? 1 : -1];   /* (MNM-1: 6 tracks, room left) */
+project_t proj_slot[4] __attribute__((section(".noinit")));
+
+static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
+{
+    const uint8_t *b = p;
+    uint32_t h = 2166136261u;
+    while (n--)
+        h = (h ^ *b++) * 16777619u;
+    return h;
+}
+static uint32_t proj_sum(const project_t *p) { return proj_hash(p, sizeof *p - 4u); }
+static int proj_ok(const project_t *q) { return q->magic == PROJ_MAGIC && q->size == sizeof *q && q->sum == proj_sum(q); }
+
+#if FELUCCA_FLASH
+static void proj_fetch(uint32_t slot)
+{
+    project_t *q = &proj_slot[slot & 3u];
+    int n = st_load(OBJ_PROJECT0 + (slot & 3u), q, sizeof *q);
+    if (n != (int)sizeof *q || !proj_ok(q))
+        q->magic = 0;
+}
+#endif
+
+/* the sequencer runs (or starts this block): a flash erase silences the audio and stalls it, so no saving now */
+static int transport_busy(void) { return song.playing || transport_req == 1u; }
+
+/* 12 stored name bytes -> d (NAME_LEN + 1): up to the first 0; a byte outside NAME_SET: no name */
+static void proj_name_get(char *d, const char *s)
+{
+    uint32_t i;
+    name_set(d, "");
+    for (i = 0; i < NAME_LEN && s[i]; i++) {
+        if (!name_char_ok(s[i])) {
+            name_set(d, "");
+            return;
+        }
+        d[i] = s[i];
+    }
+}
+
+static void project_save(uint32_t slot)
+{
+    if (transport_busy()) {                            /* (upstream 1.0) only while stopped */
+        ui_message("STOP TO SAVE");
+        return;
+    }
+    project_t *p = &proj_slot[slot & 3u];
+    uint32_t i;
+    memset(p, 0, sizeof *p);
+    p->magic = PROJ_MAGIC;
+    p->size = sizeof *p;
+    for (i = 0; i < G_COUNT; i++)
+        p->g[i] = song.g[i];
+    p->sel = song.sel;
+    for (i = 0; i < NTRK; i++) {
+        memcpy(p->t[i].p, trk[i].p, sizeof p->t[i].p);
+        memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
+        proj_xp_put(&p->t[i], trk[i].p);               /* KEYF: the steps' spare bytes */
+        p->pre[i] = (uint16_t)preset_rec_enc(trk[i].pre);   /* (stable: a uid / a user slot, presets.c) */
+        p->pre_ed[i] = trk[i].pre_ed;
+    }
+    p->motion = mo.s;                                  /* (stopped: the base is in the knobs) */
+    p->song = chain.cfg;
+    memcpy(p->name, chain.name, NAME_LEN);
+    p->sum = proj_sum(p);
+    chain.from = (uint8_t)((slot & 3u) + 1u);
+#if FELUCCA_FLASH
+    if (flash_ok) {
+        if (st_save(OBJ_PROJECT0 + (slot & 3u), p, sizeof *p)) {
+            ui_message("SAVE ERROR");
+            return;
+        }
+        lastp.set = 1;                                  /* the last project: power-on loads it (spec 2026-10-11 §6) */
+        lastp.slot = (uint8_t)(slot & 3u);
+        settings_save();                                /* (stopped: now; unchanged: nothing written) */
+        ui_message("SAVED");
+        return;
+    }
+#endif
+    ui_message("SAVED (RAM)");
+}
+
+/* a stored preset reference (decoded: presets.c preset_rec_dec) of a track with model m: none, or a factory preset of
+ * another voice (a uid retouched by another firmware), is none; a user slot's is kept as it is (its slot may hold
+ * another voice by now: shown as none, presets.c preset_of) */
+static uint32_t preset_ref(uint32_t id, uint32_t m)
+{
+    if (id >= PRE_NID || (id < PRE_NFACT && PRE_FACTORY[id].model != m))
+        return PRE_NONE;
+    return id;
+}
+
+/* slot -> the live project; 1 loaded. irq: the main loop's load (the audio ISR runs: off while copying); 0 the
+ * power-on one (drum_boot_init: before audio_init and fm1_irq_enable_all, so no fm1_irq_on; no EMPTY SLOT message) */
+static int proj_load(uint32_t slot, int irq)
+{
+    project_t *p = &proj_slot[slot & 3u];
+    uint32_t i, k;
+    if (chain_busy()) {                                 /* a song reads the slots */
+        ui_message("STOP TO LOAD");
+        return 0;
+    }
+#if FELUCCA_FLASH
+    if (flash_ok && !proj_ok(p))
+        proj_fetch(slot);
+#endif
+    if (!proj_ok(p)) {
+        if (irq)
+            ui_message("EMPTY SLOT");
+        return 0;
+    }
+    transport_req = 2;
+    if (irq)
+        fm1_irq_off();                                  /* the audio ISR must not see half a project */
+    for (i = 0; i < G_COUNT; i++)
+        if (i != G_SLOT && i != G_LOAD && i != G_SAVE)
+            song.g[i] = (int16_t)(i == G_CLOCK && (p->g[i] < 0 || p->g[i] > GP[i].max)
+                                      ? 0 : clamp(p->g[i], GP[i].min, GP[i].max));   /* CLK BLE without BLE: INT */
+    for (k = 0; k < NTRK; k++) {
+        track_t *t = &trk[k];
+        const proj_trk_t *s = &p->t[k];
+        uint32_t m = (uint32_t)clamp(s->p[P_MODEL], 0, NMODELS - 1);
+        drum_cut(t);
+        for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */
+            const param_desc_t *d = i >= P_E0 && i <= P_E7 ? &DMODELS[m].edit[i - P_E0] : &TP[i];
+            t->p[i] = (int16_t)clamp(i < P_NSTORED ? s->p[i] : proj_xp_get(s, i), d->min, d->max);
+        }
+        t->p[P_MODEL] = (int16_t)m;
+        t->model = (uint8_t)m;
+        t->pre = (uint16_t)preset_ref(preset_rec_dec(p->pre[k]), m);
+        t->pre_ed = p->pre_ed[k] ? 1u : 0u;
+        t->key_nt = 0;                                  /* no last KEYS note carried over (spec §2) */
+        for (i = 0; i < NSTEP; i++) {                   /* garbage cannot index a table or divide by zero */
+            const step_t *q = &s->step[i];
+            t->step[i].on = q->on ? 1u : 0u;
+            t->step[i].acc = q->acc ? 1u : 0u;
+            t->step[i].cond = (uint8_t)(q->cond < COND_MAX ? q->cond : COND_MAX);
+            t->step[i].rat = (uint8_t)(q->rat < 3u ? q->rat : 3u);
+            t->step[i].slide = q->slide;
+            t->step[i].tie = q->tie;
+            t->step[i].nt = (int8_t)clamp(q->nt, NT_MIN, NT_MAX);
+            t->step[i].rsv = 0;
+        }
+    }
+    for (k = 0, i = 0; k < NTRK; k++)                   /* ACID on 2 tracks at most: the first two keep it, the
+                                                         * others get their power-on kit model (with its sound) */
+        if ((uint32_t)trk[k].p[P_MODEL] == DM_ACID && ++i > ACID_MAXTRK) {
+            int16_t note = trk[k].p[P_NOTE];
+            drum_set_model(&trk[k], KIT_DEF[k][0]);
+            trk[k].p[P_NOTE] = note;
+        }
+    if (motion_valid(&p->motion))                       /* the motion: a broken block is dropped, the rest loads */
+        mo.s = p->motion;
+    else
+        memset(&mo.s, 0, sizeof mo.s);
+    motion_forget();                                    /* the new knobs are the base: the stop puts nothing back */
+    if (chain_valid(&p->song))                          /* the song and the name: broken ones dropped */
+        chain.cfg = p->song;
+    else
+        memset(&chain.cfg, 0, sizeof chain.cfg);
+    proj_name_get(chain.name, p->name);
+    chain.from = (uint8_t)((slot & 3u) + 1u);
+    song.sel = (uint8_t)(p->sel < NTRK ? p->sel : 0u);
+    if (irq)
+        fm1_irq_on();
+    ui.force = 1;
+    ui_message("LOADED");
+    return 1;
+}
+static void project_load(uint32_t slot) { (void)proj_load(slot, 1); }
+
+/* power-on (drum_boot_init, not in safe start): the last project saved to flash loads as a LOAD does, stopped, its
+ * slot PROJECT's SLOT. Empty or unreadable: confirm 5, LOAD FAILED / START NEW PROJECT? (ui_input.c) over the power-on
+ * kit */
+static void project_boot(void)
+{
+    if (!lastp.set)
+        return;
+    if (proj_load(lastp.slot, 0)) {
+        song.g[G_SLOT] = (int16_t)(lastp.slot + 1u);
+        return;
+    }
+    ui.confirm = 5;
+    ui.confirm_trk = lastp.slot;
+    ui.force = 1;
+}
+
+/* settings + learned panel table: one flash object (format unchanged from Felucca, so a calibrated
+ * panel survives the change of firmware). The flash copy wins at boot. */
+typedef struct {
+    uint32_t magic, palette, lowcut, zoom;          /* palette: bits 0..7 COLOR, bit 8 the BT AUTOSTART (2026-10-12) */
+    panel_t panel;
+} persist_t;
+#define PERSIST_MAGIC 0x50455232u                  /* "PER2" */
+#if FELUCCA_FLASH
+static persist_t persist_saved;
+#endif
+
+/* MIDI LEARN's map (midi_learn.c ml_map), its own flash object OBJ_UPRESET0 (storage.c's user-preset object, unused
+ * by Hortator; 0xDC000..0xDDFFF): "HLRN", version 2, ML_N (32) entries {num, trk, code, src} (code: a P_* id + 1 or
+ * an action, ML_A_*). Version 1 (16 entries, CCs and parameters only, 72 B) loads into it. Anything else there (none,
+ * Felucca's user presets, another version) reads as nothing learned; a broken entry is dropped (spec 2026-10-13 §5,
+ * §7) */
+#define ML_MAGIC 0x4E524C48u                       /* "HLRN" */
+#define ML_N1 16u                                  /* version 1's entries */
+typedef struct {
+    uint32_t magic;
+    uint16_t ver, n;
+    ml_ent_t e[ML_N];
+} ml_rec_t;
+typedef char ml_rec_size[sizeof(ml_rec_t) == 136u && 8u + 4u * ML_N1 == 72u ? 1 : -1];
+#if FELUCCA_FLASH
+static ml_rec_t ml_saved;                           /* what the flash holds (a save of the same map writes nothing) */
+static void ml_rec_make(ml_rec_t *r)
+{
+    memset(r, 0, sizeof *r);
+    r->magic = ML_MAGIC;
+    r->ver = 2;
+    r->n = ML_N;
+    memcpy(r->e, ml_map, sizeof r->e);
+}
+#endif
+/* persist_boot (IRQs off, the map cleared): the map from flash (version 2, or 1), its broken entries dropped: a source
+ * or a code this build does not know or cannot learn, a note on a parameter or a macro, a track past 8 (an action:
+ * not 0), a source or a code already in an earlier entry */
+static void learn_load(void)
+{
+#if FELUCCA_FLASH
+    memset(&ml_saved, 0, sizeof ml_saved);
+    {
+        ml_rec_t r;
+        uint32_t i, j, n = 0, len;
+        int got;
+        memset(&r, 0, sizeof r);
+        got = flash_ok ? st_load(OBJ_UPRESET0, &r, sizeof r) : -1;
+        if (got < 0 || r.magic != ML_MAGIC)
+            return;
+        len = (uint32_t)got;
+        if (r.ver == 1u && r.n == ML_N1 && len == 8u + 4u * ML_N1) {
+            for (i = 0; i < ML_N1; i++)                 /* (version 1: src was a reserved 0, CC) */
+                if (r.e[i].src)
+                    r.e[i].code = 0;
+            r.ver = 2;                                  /* (as a version 2 of the same map: no write for it) */
+            r.n = ML_N;
+        } else if (r.ver != 2u || r.n != ML_N || len != sizeof r) {
+            return;
+        }
+        ml_saved = r;
+        for (i = 0; i < ML_N; i++) {
+            const ml_ent_t *e = &r.e[i];
+            uint32_t s = (uint32_t)(e->num | e->src << 8);
+            int ok = e->code && e->src <= ML_NOTE && ml_src_ok(s) && ml_code_ok(e->trk, e->code) &&
+                     (e->src != ML_NOTE || ml_btn(e->code));
+            for (j = 0; ok && j < n; j++)
+                ok = (uint32_t)(ml_map[j].num | ml_map[j].src << 8) != s &&
+                     !(ml_map[j].code == e->code && ml_map[j].trk == e->trk);
+            if (ok)
+                ml_map[n++] = *e;
+        }
+    }
+#endif
+}
+/* after a learn / clear (main loop): the map saved when it changed; while playing (or PLAY pending) once stopped
+ * (settings_poll): a write erases a sector with the audio silenced */
+static void learn_save(void)
+{
+    if (transport_busy()) {
+        ui.ml.save = 1;
+        return;
+    }
+    ui.ml.save = 0;
+#if FELUCCA_FLASH
+    {
+        static ml_rec_t r;                          /* (static: 136 B off the main path's deepest stack) */
+        if (!flash_ok)
+            return;
+        ml_rec_make(&r);
+        if (!memcmp(&r, &ml_saved, sizeof r))
+            return;
+        if (st_save(OBJ_UPRESET0, &r, sizeof r) == 0)
+            ml_saved = r;
+    }
+#endif
+}
+
+/* the user presets (presets.c upr): their own flash object OBJ_UPRESET0 + 1 (storage.c's second user-preset object,
+ * unused before; 0xDE000..0xDFFFF; MIDI LEARN's map keeps OBJ_UPRESET0): "UPR1", 128 slots {used, model, k[8]} (1284 B).
+ * Another record there (none, Felucca's presets, another version) reads as no user preset; a slot that is not used 1
+ * or names no model is empty, its knobs are put inside the model's ranges. A storage.c save is two copies and a commit
+ * record: a power cut keeps the last record whole */
+static void upr_write(void)                         /* the bank to flash: now when stopped, else at the next STOP */
+{
+    if (transport_busy()) {
+        upr_pending = 1;
+        return;
+    }
+    upr_pending = 0;
+#if FELUCCA_FLASH
+    if (!flash_ok)
+        return;
+    upr.magic = UPR_MAGIC;
+    if (st_save(OBJ_UPRESET0 + 1u, &upr, sizeof upr))
+        ui_message("SAVE ERROR");
+#endif
+}
+/* t's voice into user slot (0..127, over what it holds): in the list at once, in flash as upr_write. 0, -1 a bad slot.
+ * The knobs as set: while MOTION plays the track, its base (motion.c), not the value motion moved a knob to. The track
+ * is not changed (the caller points its reference at PRE_NFACT + slot) */
+static int preset_user_save(uint32_t slot, const track_t *t)
+{
+    uint32_t k = (uint32_t)(t - trk);
+    if (slot >= PRE_NUSER)
+        return -1;
+    upr_set(slot, (uint32_t)t->p[P_MODEL], k < NTRK && ((mo.base_ok >> k) & 1u) ? mo.base[k] : t->p);
+    upr_write();
+    return 0;
+}
+static void preset_user_delete(uint32_t slot)       /* user slot emptied (tracks loaded from it keep their knobs) */
+{
+    if (slot >= PRE_NUSER || upr.s[slot].used != 1u)
+        return;
+    memset(&upr.s[slot], 0, sizeof upr.s[slot]);
+    upr_write();
+}
+static void preset_user_boot(void)                  /* persist_boot (after flash_ok): the bank from flash */
+{
+    memset(&upr, 0, sizeof upr);
+    upr_pending = 0;
+#if FELUCCA_FLASH
+    {
+        uint32_t i, k;
+        if (!flash_ok || st_load(OBJ_UPRESET0 + 1u, &upr, sizeof upr) != (int)sizeof upr || upr.magic != UPR_MAGIC) {
+            memset(&upr, 0, sizeof upr);
+            return;
+        }
+        for (i = 0; i < PRE_NUSER; i++) {
+            upr_slot_t *u = &upr.s[i];
+            if (u->used != 1u || u->model >= NMODELS) {
+                memset(u, 0, sizeof *u);
+                continue;
+            }
+            for (k = 0; k < 8u; k++)
+                u->k[k] = (int8_t)clamp(u->k[k], DMODELS[u->model].edit[k].min, DMODELS[u->model].edit[k].max);
+        }
+    }
+#endif
+}
+static void preset_user_tick(void)                  /* the main loop (settings_poll): a change left for the STOP */
+{
+    if (upr_pending && !transport_busy())
+        upr_write();
+}
+
+/* the stored lowcut word's bits 0..7 (bits 8..31: btset.bt_hi): 0..1 SPEAKER EQ, 2..4 the last project (2 set, 3..4
+ * its slot), 5..6 METRO (spec 2026-10-11 §9), 7 BACKLIGHT not OFF (§12; its level: the palette word's bits 9..11,
+ * fixes 2026-10-21 item 9, settings_save). An older firmware reads SPEAKER EQ FLAT from a record with any of 2..7 set */
+static uint32_t lc_pack(void)
+{
+    return (settings.lowcut & 3u) |
+           (lastp.set ? 1u << 2 | (uint32_t)(lastp.slot & 3u) << 3 : 0u) | (uint32_t)(fx_metro & 3u) << 5 |
+           (uint32_t)(backlight != BL_OFF) << 7;
+}
+static void lc_unpack(uint32_t lc)
+{
+    settings.lowcut = lc & 3u;                       /* (3: settings_init makes it FLAT) */
+    lastp.set = (uint8_t)((lc >> 2) & 1u);
+    lastp.slot = (uint8_t)((lc >> 3) & 3u);
+    fx_metro = (uint8_t)((lc >> 5) & 3u);
+    backlight = (lc >> 7) & 1u;                      /* (ON: DIM LO; the level from the palette word, persist_boot) */
+}
+
+static void persist_boot(void)                    /* before settings_init / panel_init */
+{
+    memset(&btset, 0, sizeof btset);                  /* no device, MODE AUTO, AUTOSTART OFF unless the flash record
+                                                       * has them */
+    memset(&lastp, 0, sizeof lastp);                  /* no last project, unless the flash record has one */
+    fx_metro = 0;                                     /* METRO OFF, as well */
+    backlight = 0;                                    /* BACKLIGHT OFF, as well */
+    memset(ml_map, 0, sizeof ml_map);                 /* MIDI LEARN: nothing learned, as well */
+    memset(&upr, 0, sizeof upr);                      /* no user preset, as well (presets.c) */
+    upr_pending = 0;
+#if FELUCCA_FLASH
+    persist_t p;
+    uint32_t f = irq_save();
+    flash_ok = FL_FAR(fl_jedec_ram)() == 0x856014u;
+    irq_restore(f);
+    if (!flash_ok)
+        return;
+    fl_plain_window_init();
+    {
+        uint32_t k;
+        for (k = 0; k < SMP_USER_SLOTS; k++)
+            smp_user_scan(k);
+    }
+    if (st_load(OBJ_SETTINGS, &p, sizeof p) == (int)sizeof p && p.magic == PERSIST_MAGIC) {
+        settings.magic = SETTINGS_MAGIC;
+        settings.palette = p.palette & 0xFFu;       /* bits 0..7 the palette; bit 8 AUTOSTART (BLE: bt_page.c) */
+        btset.bt_auto = (p.palette >> 8) & 1u;
+        lc_unpack(p.lowcut);
+        if (((p.palette >> 9) & 7u) - 1u < BL_COUNT - 1u && backlight)   /* BACKLIGHT's level, bits 9..11 (item 9; 0:
+                                                     * an older record, its ON = DIM LO) */
+            backlight = (p.palette >> 9) & 7u;
+        settings.zoom = p.zoom & 1u;
+        settings.mutebar = (p.zoom >> 1) & 1u;     /* kept in zoom's bit 1: the flash format stays Felucca's */
+        settings.accel = !((p.zoom >> 2) & 1u);    /* bit 2 = KNOB ACCEL OFF: older saves read as on */
+        settings.usbfix = (p.zoom >> 3) & 1u;      /* bit 3 = USB LEVEL FIXED: older saves read MASTER */
+        settings.perfpage = (p.zoom >> 4) & 1u;    /* bit 4 = PERFORM PAGE: older saves read HOLD */
+        btset.btmode = (p.zoom >> 5) & 3u;         /* bits 5..6 = BT MODE, 7 its address type, 8..31 its address */
+        if (btset.btmode > 2u)                     /* bytes 0..2; lowcut bits 8..31 bytes 3..5 (all 0 = none) */
+            btset.btmode = 0;
+        btset.bt_type = (p.zoom >> 7) & 1u;
+        btset.bt_lo = p.zoom >> 8;
+        btset.bt_hi = p.lowcut >> 8;
+        if (p.panel.magic == PANEL_MAGIC)
+            panel = p.panel;
+        persist_saved = p;
+    }
+    learn_load();                                     /* MIDI LEARN's map (its own object) */
+    preset_user_boot();                               /* the user presets (theirs) */
+    {
+        uint32_t i;
+        for (i = 0; i < 4u; i++)
+            if (!proj_ok(&proj_slot[i]))
+                proj_fetch(i);
+    }
+#endif
+}
+
+static int project_used(uint32_t slot) { return proj_ok(&proj_slot[slot & 3u]); }
+static int project_name(uint32_t slot, char *b)   /* slot's name -> b (NAME_LEN + 1, "" none); 0 = an empty slot */
+{
+    const project_t *p = &proj_slot[slot & 3u];
+    name_set(b, "");
+    if (!proj_ok(p))
+        return 0;
+    proj_name_get(b, p->name);
+    return 1;
+}
+static void project_rename(uint32_t slot, const char *name)   /* only the name; the current one too if it is that slot */
+{
+    project_t *p = &proj_slot[slot & 3u];
+    char n[NAME_LEN + 1u];
+    if (transport_busy()) {
+        ui_message("STOP TO SAVE");
+        return;
+    }
+    if (!proj_ok(p)) {
+        ui_message("EMPTY SLOT");
+        return;
+    }
+    name_set(n, name);
+    memcpy(p->name, n, NAME_LEN);
+    p->sum = proj_sum(p);
+    if (chain.from == (slot & 3u) + 1u)
+        name_set(chain.name, n);
+#if FELUCCA_FLASH
+    if (flash_ok) {
+        ui_message(st_save(OBJ_PROJECT0 + (slot & 3u), p, sizeof *p) ? "SAVE ERROR" : "RENAMED");
+        return;
+    }
+#endif
+    ui_message("RENAMED (RAM)");
+}
+/* PLAY on SONG (main loop): the rows' slots -> chain.src, armed; the ISR starts it (seq_start). 0 armed, 1 no rows,
+ * 2 busy, 3 + s slot s empty. A slot's steps are safe as stored (step_fire bounds PROB and RATCH); its timing is put
+ * inside the ranges, a broken motion plays none */
+static uint32_t chain_prepare(void)
+{
+    uint32_t i, k, j, used = 0;
+    if (transport_busy() || chain_busy())
+        return 2;
+    if (!chain.cfg.count || !chain_valid(&chain.cfg))
+        return 1;
+    for (i = 0; i < chain.cfg.count; i++) {
+        uint32_t s = chain.cfg.row[i].slot;
+        if (!project_used(s))
+            return 3u + s;
+        used |= 1u << s;
+    }
+    fm1_irq_off();
+    for (i = 0; i < 4u; i++)
+        if ((used >> i) & 1u) {
+            const project_t *p = &proj_slot[i];
+            chain_src_t *d = &chain.src[i];
+            d->m = motion_valid(&p->motion) ? &p->motion : &MOTION_NONE;
+            for (k = 0; k < NTRK; k++) {
+                d->step[k] = p->t[k].step;
+                d->model[k] = (uint8_t)p->t[k].p[P_MODEL];
+                for (j = 0; j < 4u; j++) {
+                    uint32_t id = CHAIN_TIMING[j];
+                    d->timing[k][j] = (int16_t)clamp(p->t[k].p[id], TP[id].min, TP[id].max);
+                }
+            }
+        }
+    chain.armed = 1;
+    fm1_irq_on();
+    transport_req = 1;
+    return 0;
+}
+
+static void settings_save(void)                    /* asked for while playing: written once stopped (settings_poll) */
+{
+    if (transport_busy()) {
+        ui.persist_pending = 1;
+        return;
+    }
+    ui.persist_pending = 0;
+#if FELUCCA_FLASH
+    persist_t p;
+    if (!flash_ok)
+        return;
+    memset(&p, 0, sizeof p);
+    p.magic = PERSIST_MAGIC;
+    p.palette = (settings.palette & 0xFFu) | (btset.bt_auto & 1u) << 8 | (backlight & 7u) << 9;   /* an older
+                                                     * Hortator reads a palette out of range from bit 8: its display
+                                                     * settings reset; 9..11 BACKLIGHT's level (item 9: an older one reads
+                                                     * lowcut's bit 7, ON) */
+    p.lowcut = lc_pack() | btset.bt_hi << 8;
+    p.zoom = (settings.zoom & 1u) | (settings.mutebar & 1u) << 1 | (uint32_t)!settings.accel << 2 | (settings.usbfix & 1u) << 3 |
+             (settings.perfpage & 1u) << 4 | (btset.btmode & 3u) << 5 | (btset.bt_type & 1u) << 7 | btset.bt_lo << 8;
+    p.panel = panel;
+    if (!memcmp(&p, &persist_saved, sizeof p))
+        return;
+    if (st_save(OBJ_SETTINGS, &p, sizeof p) == 0)
+        persist_saved = p;
+#endif
+}
+
+static void settings_poll(void)                    /* every UI frame: a settings save left for the stop */
+{
+    if (ui.persist_pending && !transport_busy())
+        settings_save();
+    if (ui.ml.save && !transport_busy())             /* .. and MIDI LEARN's map */
+        learn_save();
+    preset_user_tick();                              /* .. and the user presets */
+}
+
+#if FELUCCA_FLASH
+_Static_assert(sizeof(project_t) <= ST_PAYLOAD_MAX, "project does not fit one flash sector");
+#endif

@@ -1,0 +1,23 @@
+# host instructions per sample (proc_pid_rusage), checked by tests/drum_test.c test_cost
+# ref: stock Felucca's heaviest mix (cpu/mix/3parts_full_drums in tests/cpu_baseline.txt @ 1e838e1), known to
+#      run on the FM-1. Realistic heavy use must stay within it (demo pattern + layer/DIST/SLICER/sends on all 8).
+ref 1566
+# extreme: 8 tracks of the heaviest model kept busy, every FX, voice cap 8 = 2388 measured (2026-10-05);
+#          by the user's decision it may exceed ref (M1-B overload shedding on the device), but must not grow
+#          past +10 %.
+# 2026-10-25 (MNM-1 0.4, the EFFECTS page): each track its own stereo tape delay (fx.c track_delay)
+#          where Hortator had one shared delay: the extreme kit (DSND on all 6) = 3052 measured: the limit moves to it
+#          + 10 %; the realistic heavy kit (1383) stays within ref.
+extreme_max 3357
+# upstream Felucca's idle mix (its tests/cpu_baseline.txt, cpu/mix/idle, host instructions / sample): the
+# first seconds of the drum firmware stay within 1.25 x of it (device-readiness spec H4)
+upstream_idle 286
+# extreme with RESON at its caps (4 tracks, 2 of them CHORD, DECAY max) on the extreme kit = 3060 measured
+#          (2026-10-06, after optimizing reson.c); by the user's decision a separate limit (+10 %): the stress case
+#          sheds voices on the device; the realistic heavy kit with RESON on 2 tracks stays within ref.
+# 2026-10-07 (PHYS, user decision): 2 CHORD + 2 MODAL on the extreme kit = 3595 measured: the limit moves to it + 10 %.
+extreme_reson_max 3955
+# 2026-10-08 (FILTER, user decision): the extreme kit (8 x SMPL, every FX) with the FILTER on all 8 = 2813 measured: its
+#          own limit, + 10 % (extreme_max stays for the kit without it; the device sheds as for RESON).
+# 2026-10-25 (MNM-1 0.4): the same with the FILTER (both stages, resonant) on all = 3483 measured: + 10 %.
+extreme_filter_max 3831

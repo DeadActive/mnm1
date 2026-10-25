@@ -1,0 +1,344 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Drum machine fork: 2026 DEADACTIVE
+// MNM-1: 2026 Piotr Szwach
+// The site around the simulator: the landing page (web/sim/index.html) and the restyled English installer
+// (web/index_pkg.html). Run from the repo root: node tests/sim_site.mjs
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+
+// ---- the installer: restyled and rebranded, its install logic untouched
+const ORIG_REV = '12a1ba0';                         // the installer's last change on main (upstream 1.0 installer)
+const NOW = readFileSync('web/index_pkg.html', 'utf8');
+let ORIG = null;
+try { ORIG = execFileSync('git', ['show', `${ORIG_REV}:web/index_pkg.html`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); }
+catch { /* a source archive without git history: the guard is skipped */ }
+
+const script = html => html.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
+const TEXT_RE = /const TEXT = (\{[\s\S]*?\n\});\n/;
+const masked = s => s.replace(TEXT_RE, 'const TEXT = /*TEXT*/;\n');
+const table = html => Function(`return ${script(html).match(TEXT_RE)[1]}`)();
+// the only script changes allowed (spec): English only, and the status label's name
+const CHANGES = [
+  ['let lang = (navigator.language || "en").toLowerCase().startsWith("ja") ? "ja" : "en";', 'const lang = "en";'],
+  ['  $("lang").textContent = t("other");\n', ''],
+  ['$("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });\n', ''],
+  ['say(`Felucca ${meta.version}`);', 'say(`Hortator ${meta.version}`);'],
+  // the install count (2026-10-22): one GoatCounter event after Done, never awaited (web/sim/counter.js)
+  ['if (k === "done") { $("bar").value = 100; sayK("done"); }',
+    'if (k === "done") { $("bar").value = 100; sayK("done"); countInstall(meta.version); }'],
+  // two versions in one release (2026-10-09): the package loader runs again for the chosen version
+  ['(async () => {', 'const load = async () => {'],
+  ['})();\n', `};
+load();
+loadPageCounter();
+if (counterOn()) $("counted").hidden = false;
+if ((meta.variants || []).length > 1) $("variants").hidden = false;
+document.querySelectorAll('input[name="variant"]').forEach((r) => r.addEventListener("change", () => {
+  const v = meta.variants.find((x) => x.id === r.value);
+  if (!v || writing) return;
+  meta.pkg = v.pkg;
+  meta.version = v.version;
+  image = null;
+  $("go").disabled = true;
+  const radios = document.querySelectorAll('input[name="variant"]');   // one download at a time: no stale image
+  radios.forEach((x) => { x.disabled = true; });
+  load().finally(() => radios.forEach((x) => { x.disabled = false; }));
+}));
+`],
+];
+
+test('installer: the script is main\'s, changed only in its text table, the language lines and the label', { skip: !ORIG && 'no git history' }, () => {
+  let want = masked(script(ORIG));
+  for (const [from, to] of CHANGES) {
+    assert.ok(want.includes(from), `main's installer no longer has: ${from.trim()} (update CHANGES)`);
+    want = want.replace(from, to);
+  }
+  assert.equal(masked(script(NOW)), want);
+});
+
+test('installer: English only, every message the logic can show is still there', { skip: !ORIG && 'no git history' }, () => {
+  const old = table(ORIG), now = table(NOW);
+  assert.deepEqual(Object.keys(now), ['en'], 'one language');
+  for (const k of Object.keys(old.en)) if (k !== 'other' && k !== 'editor') assert.equal(typeof now.en[k], 'string', k);
+  for (const [, k] of NOW.matchAll(/data-t="(\w+)"/g)) assert.equal(typeof now.en[k], 'string', `data-t ${k}`);
+});
+
+test('installer: named MNM-1, no language switch, /*LIB*/ and /*META*/ kept for make_site.py', () => {
+  assert.match(NOW, /<html lang="en">/);
+  assert.match(NOW.match(/<title>(.*)<\/title>/)[1], /MNM-1/);
+  assert.match(NOW.match(/<h1[^>]*>([\s\S]*?)<\/h1>/)[1], /MNM-1/);
+  assert.match(NOW, /fork of Hortator/, 'Hortator credited');
+  assert.doesNotMatch(NOW, /FM-1 Drums|FM-1 DRUMS/, 'the old name is gone');
+  assert.doesNotMatch(NOW, /id="lang"/);
+  assert.equal(NOW.split('/*LIB*/').length, 2);
+  assert.equal(NOW.split('/*META*/').length, 2);
+  for (const id of ['go', 'bar', 'status', 'log']) assert.match(NOW, new RegExp(`id="${id}"`), id);
+});
+
+test('installer: a version choice (with or without Bluetooth), hidden unless the site has two packages', () => {
+  const fs = NOW.match(/<fieldset id="variants" hidden>([\s\S]*?)<\/fieldset>/);
+  assert.ok(fs, 'a hidden fieldset id="variants"');
+  const values = [...fs[1].matchAll(/<input type="radio" name="variant" value="(\w+)"( checked)?>/g)];
+  assert.deepEqual(values.map((m) => m[1]), ['std', 'ble']);
+  assert.equal(values[0][2], ' checked', 'the version without Bluetooth is the default');
+});
+
+// ---- the landing page: the simulator as the hero, what it does, install
+const LANDING = readFileSync('web/sim/index.html', 'utf8');
+
+test('landing: hero (with the device and the #play end), manual, roadmap, install; install goes to the installer; the source is linked', () => {
+  for (const id of ['hero', 'manual', 'roadmap', 'install']) assert.match(LANDING, new RegExp(`<section[^>]*id="${id}"`), id);
+  const hero = LANDING.slice(LANDING.indexOf('id="hero"'), LANDING.indexOf('id="manual"'));
+  assert.match(hero, /id="device"/, 'the device lives in the hero');
+  assert.match(hero, /id="play"/, 'the end of the hero track is #play');
+  assert.match(hero, /id="tilt"/, 'the 3D transform wrapper');
+  assert.match(LANDING, /href="webapp\/installer\/"/);
+  assert.match(LANDING, /href="#play"/);
+  assert.match(LANDING, /href="source\.tar\.gz"/);
+  assert.match(LANDING.match(/<title>(.*)<\/title>/)[1], /MNM-1/);
+  assert.doesNotMatch(LANDING, /FM-1 Drums|FM-1 DRUMS/, 'the old name is gone');
+  assert.match(LANDING, /inspired by and forked from Hortator/, 'Hortator credited as the origin');
+  assert.match(LANDING, /id="device"/, 'the simulator is on the page');
+});
+
+// ---- layout.js: the panel's two layouts, the morph between them, the hero's choreography (pure, no DOM)
+import { LAYOUTS, blend, heroPose, outline } from '../web/sim/layout.js';
+
+test('layouts: both have every control, a 240 px LCD, the same knobs', () => {
+  const { landscape: L, portrait: P } = LAYOUTS;
+  assert.deepEqual(Object.keys(L.ctl).sort(), Object.keys(P.ctl).sort());
+  assert.equal(Object.keys(L.ctl).length, 14 + 27);
+  assert.deepEqual(Object.keys(L.enc).sort(), Object.keys(P.enc).sort());
+  assert.equal(L.lcd[2], 240);
+  assert.equal(P.lcd[2], 240);
+});
+
+test('blend: exactly the landscape at 0 and the portrait at 1; the OCT tray, which the phone has not, fades out', () => {
+  const { landscape: L, portrait: P } = LAYOUTS;
+  const a = blend(L, P, 0), b = blend(L, P, 1), h = blend(L, P, 0.5);
+  assert.deepEqual([a.W, a.H, a.lcd, a.ctl, a.enc], [L.W, L.H, L.lcd, L.ctl, L.enc]);
+  assert.deepEqual([b.W, b.H, b.lcd, b.ctl, b.enc], [P.W, P.H, P.lcd, P.ctl, P.enc]);
+  for (const name of Object.keys(P.deco)) assert.deepEqual(b.deco[name].box, P.deco[name], name);
+  assert.equal(a.deco.oct.opacity, 1);
+  assert.equal(b.deco.oct.opacity, 0);
+  assert.ok(h.W < L.W && h.W > P.W, 'halfway is between the two');
+  assert.deepEqual(blend(L, L, 0.7).ctl, L.ctl, 'desktop: nothing moves');
+});
+
+test('hero pose: far, tilted and blurred at the top; flat, sharp and arrived at the end, desktop and phone', () => {
+  for (const phone of [false, true]) {
+    const s = heroPose(0, phone), e = heroPose(1, phone);
+    assert.ok(s.blur >= 8 && s.transform !== 'none' && !s.arrived && s.copy === 1, `start (${phone})`);
+    assert.ok(e.blur === 0 && e.transform === 'none' && e.arrived && e.copy === 0, `end (${phone})`);
+    assert.equal(e.morph, phone ? 1 : 0);
+  }
+});
+
+test('hero pose: the shine never plays while the scene is blurred (a blur filter re-renders the whole scene)', () => {
+  for (const phone of [false, true])
+    for (let i = 0; i <= 1000; i++) {
+      const q = heroPose(i / 1000, phone);
+      assert.ok(!(q.blur > 0 && q.glare > 0), `p=${i / 1000} phone=${phone}: blur ${q.blur}, glare ${q.glare}`);
+      if (phone && q.morph > 0) assert.equal(q.transform, 'none', `p=${i / 1000}: the phone morphs only once flat`);
+    }
+});
+
+// ---- the features: eight chapters, each a piece on the firmware's own DSP (features.js), each telling where it is on
+// the panel (Bluetooth, a separate test build, has no panel control yet)
+import { BTN, ENC } from '../web/sim/controls.js';
+
+test('manual: tracks and machines, the 8-knob pages, the sequencer; every machine the firmware has is named', () => {
+  const sec = LANDING.slice(LANDING.indexOf('id="manual"'), LANDING.indexOf('id="roadmap"'));
+  for (const id of ['m-tracks', 'm-pages', 'm-seq', 'm-more']) assert.match(sec, new RegExp(`id="${id}"`), id);
+  const names = [...readFileSync('firmware/src/dmodels.c', 'utf8').match(/N_MODEL\[NMODELS\] = \{([^}]*)\}/)[1]
+    .matchAll(/"([\w+-]+)"/g)].map(m => m[1]);
+  for (const n of names.slice(names.indexOf('SWSAW'))) assert.ok(sec.includes(n), `${n} in the manual`);
+  const labels = new Set([...BTN.map(b => b.label), ...ENC.map(e => e.label), 'SCL']);
+  const rows = [...sec.matchAll(/<td class="pbtn"[^>]*>([A-Z]+)<\/td>/g)].map(m => m[1]);
+  assert.ok(rows.length >= 5, 'the pages table');
+  for (const r of rows) assert.ok(labels.has(r), `${r} is not on the panel`);
+  assert.match(sec, /LOCK/, 'parameter locks explained');
+});
+
+test('roadmap: next, planned, maybe and not possible; it links the full list', () => {
+  const sec = LANDING.slice(LANDING.indexOf('id="roadmap"'), LANDING.indexOf('id="install"'));
+  for (const h of ['Next', 'Planned', 'Maybe', 'Not on this hardware']) assert.match(sec, new RegExp(`<h4>${h}`), h);
+  assert.match(sec, /docs\/ROADMAP\.md/);
+  assert.ok(readFileSync('docs/ROADMAP.md', 'utf8').length > 1000);
+});
+
+test('install: the version and what is new, the connection diagram, the installer, the way back and the recovery', () => {
+  const sec = LANDING.slice(LANDING.indexOf('id="install"'), LANDING.indexOf('<footer'));
+  for (const id of ['fw-version', 'whats-new', 'cable']) assert.match(sec, new RegExp(`id="${id}"`), id);
+  assert.match(sec, /href="webapp\/installer\/"/);
+  assert.match(sec, /<details[^>]*>\s*<summary>Back to the official firmware<\/summary>/);
+  assert.match(sec, /<details[^>]*>\s*<summary>If an install fails<\/summary>/);
+  assert.match(sec, /beta/i);
+});
+
+test('Controls opens its help over the hero stage, next to the button (not below the whole scroll track)', () => {
+  const stage = LANDING.slice(LANDING.indexOf('id="stage"'), LANDING.indexOf('id="play"'));
+  assert.match(stage, /id="help-toggle"/);
+  assert.match(stage, /id="help"/, 'the help panel is inside the sticky stage');
+});
+
+test('footer: the name and its origin, the ways around the page, the credits and the licence', () => {
+  const foot = LANDING.slice(LANDING.indexOf('<footer'), LANDING.indexOf('</footer>'));
+  assert.match(foot, /MNM-1/);
+  for (const href of ['#play', '#manual', '#roadmap', 'webapp/installer/', 'source.tar.gz']) assert.ok(foot.includes(`href="${href}"`), href);
+  for (const credit of ['Hortator', 'Felucca', 'Leo Kuroshita', 'DEADACTIVE', 'Terminus', 'CC0', 'GPL-3.0', 'not affiliated',
+                        'Mutable Instruments', 'Emilie Gillet', 'DaisySP', 'Electrosmith', 'jl-uboot-tool'])
+    assert.ok(foot.includes(credit), credit);
+});
+
+test('hero pose: the device lands early and holds: the last 40 % of the scroll track is the simulator, flat and usable', () => {
+  for (const phone of [false, true])
+    for (let i = 600; i <= 1000; i++) {
+      const q = heroPose(i / 1000, phone);
+      assert.ok(q.arrived && q.transform === 'none' && q.blur === 0 && q.glare === 0, `p=${i / 1000} phone=${phone}`);
+    }
+});
+
+test('the simulator bar: the power caption, Controls and Reset in one row; the reset confirm is a pop-over in it', () => {
+  const bar = LANDING.slice(LANDING.indexOf('id="play-bar"'), LANDING.indexOf('id="help"'));
+  for (const id of ['power-note', 'help-toggle', 'reset', 'reset-confirm']) assert.match(bar, new RegExp(`id="${id}"`), id);
+  assert.doesNotMatch(bar, /id="power-on"/, 'the power switch is on the device now');
+  assert.match(LANDING, /class="hero-end"[^>]*id="play"|id="play"[^>]*class="hero-end"/);
+});
+
+// ---- web/make_site.py: the site's front page is the landing page with the simulator (when build/sim is built)
+import { existsSync, rmSync } from 'node:fs';
+
+test('make_site: the front page is the landing page with the simulator beside it; the installer stays at webapp/installer', {
+  skip: !(existsSync('build/sim/package.fwsc') && existsSync('build/sim/fm1sim.wasm')) && 'needs a build_sim --package build',
+}, () => {
+  const out = 'build/sim/site-test';
+  rmSync(out, { recursive: true, force: true });
+  const py = process.env.PYTHON || 'python3';
+  execFileSync(py, ['-c', 'import sys; sys.path.insert(0, "web"); import make_site; make_site.main(*sys.argv[1:])',
+    'build/sim/package.fwsc', 'drum-0.0.0+test', out], { stdio: 'pipe' });
+  const front = readFileSync(`${out}/index.html`, 'utf8');
+  assert.match(front, /MNM-1/, 'the landing page, not the old redirect');
+  assert.match(front, /app\.js\?v=[0-9a-f]+/, 'the stamped build');
+  for (const f of ['fm1sim.wasm', 'app.js', 'worklet.js', 'reel.bin.gz', 'reel.json', 'version.json', 'source.tar.gz'])
+    assert.ok(existsSync(`${out}/${f}`), f);
+  for (const f of ['dither.js', 'terminus.woff', 'terminus-license.txt'])   // the look, the typeface and its licence
+    assert.ok(existsSync(`${out}/${f}`), `${f} is published`);
+  for (const f of ['reel.bin', 'reel.hash', 'package.fwsc']) assert.ok(!existsSync(`${out}/${f}`), `${f} is not published`);
+  assert.match(readFileSync(`${out}/webapp/installer/index.html`, 'utf8'), /Install MNM-1/);
+  rmSync(out, { recursive: true, force: true });
+});
+
+test('outline: the body\'s edge as wall strips, 4 sides and N per corner, following the rounded outline', () => {
+  const W = 1000, H = 620, R = 44, N = 6;
+  const strips = outline(W, H, R, N);
+  assert.equal(strips.length, 4 + 4 * N);
+  const len = strips.reduce((a, s) => a + Math.hypot(s.x1 - s.x0, s.y1 - s.y0), 0);
+  const perimeter = 2 * (W + H) - 8 * R + 2 * Math.PI * R;
+  assert.ok(Math.abs(len - perimeter) / perimeter < 0.01, `${len} vs ${perimeter}`);
+  for (let i = 0; i < strips.length; i++) {          // a closed loop: each strip starts where the last one ended
+    const a = strips[i], b = strips[(i + 1) % strips.length];
+    assert.ok(Math.hypot(a.x1 - b.x0, a.y1 - b.y0) < 1e-6, `gap after strip ${i}`);
+  }
+  for (const s of strips) assert.ok(s.x0 >= -1e-9 && s.x0 <= W + 1e-9 && s.y0 >= -1e-9 && s.y0 <= H + 1e-9);
+});
+
+test('sim.css parses: no comment left open, braces balanced (an open comment once swallowed half the page\'s styles)', () => {
+  const css = readFileSync('web/sim/sim.css', 'utf8');
+  const bare = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.ok(!bare.includes('/*'), 'a comment is never closed');
+  assert.equal((bare.match(/{/g) || []).length, (bare.match(/}/g) || []).length, 'braces');
+});
+
+test('the power switch is page UI over the stage, a leader line to where the FM-1 has it (the top edge, above the screen\'s right corner)', () => {
+  const stage = LANDING.slice(LANDING.indexOf('id="stage"'), LANDING.indexOf('id="play"'));
+  assert.match(stage, /<button[^>]*id="power-on"[^>]*role="switch"|<button[^>]*role="switch"[^>]*id="power-on"/, 'a switch in the page');
+  assert.match(stage, /id="power-lead"/, 'the leader line');
+  const app = readFileSync('web/sim/app.js', 'utf8');
+  assert.doesNotMatch(app, /sw\.id = 'power-on'/, 'no longer built into the device');
+  assert.doesNotMatch(app, /power-mark|powerMark/, 'nothing on the device: no mark either');
+  assert.doesNotMatch(readFileSync('web/sim/sim.css', 'utf8'), /power-mark/);
+  for (const [name, L] of Object.entries(LAYOUTS)) {                 // the mark on the device: where the real switch is
+    const [x, y, w, h] = L.power;
+    assert.equal(y + h / 2, 0, `${name}: centred on the top edge`);
+    const bezelRight = L.deco.bezel[0] + L.deco.bezel[2];
+    assert.ok(x + w <= bezelRight + 4 && x + w >= bezelRight - 60, `${name}: over the screen's right corner`);
+  }
+  assert.deepEqual(blend(LAYOUTS.landscape, LAYOUTS.portrait, 1).power, LAYOUTS.portrait.power);
+  const css = readFileSync('web/sim/sim.css', 'utf8');
+  assert.match(css, /@keyframes nudge/, 'the knob nudges toward on to draw the eye');
+});
+
+test('while the simulator is on screen, a cue says the page goes on', () => {
+  const stage = LANDING.slice(LANDING.indexOf('id="stage"'), LANDING.indexOf('id="play"'));
+  assert.match(stage, /<a [^>]*class="more-cue"[^>]*href="#manual"|<a [^>]*href="#manual"[^>]*class="more-cue"/);
+});
+
+test('Controls opens beside the device on wide screens: the stage gives the panel its width and the device moves left', () => {
+  const css = readFileSync('web/sim/sim.css', 'utf8'), app = readFileSync('web/sim/app.js', 'utf8');
+  assert.match(css, /\.hero-stage\.help-open \.help\s*{[^}]*right:/, 'the panel on the right');
+  assert.match(css, /\.hero-stage\.help-open \.scene\s*{[^}]*padding-right:/, 'the device keeps out of its way');
+  assert.match(app, /HELP_W/, 'the device is fitted to the width left beside the panel');
+});
+
+test('the lab\'s styles stay in its plates: the power switch\'s knob is styled by the switch alone', () => {
+  const css = readFileSync('web/sim/sim.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const [, sel] of css.matchAll(/([^{}]+)\{/g))
+    for (const part of sel.split(','))
+      if (/\.knob\b/.test(part)) assert.match(part.trim(), /^(\.plate|\.power-toggle|@)/, part.trim());
+});
+
+test('the page is the screen\'s monochrome: every colour in sim.css is a grey (the firmware\'s MONO palette and the device)', () => {
+  const css = readFileSync('web/sim/sim.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/url\("data:[^"]*"\)/g, '');
+  const hues = [];
+  for (const [m, h] of css.matchAll(/#([0-9a-f]{6}|[0-9a-f]{3})\b/gi)) {
+    const v = h.length === 3 ? h.split('').map(c => c + c) : [h.slice(0, 2), h.slice(2, 4), h.slice(4, 6)];
+    if (new Set(v.map(x => x.toLowerCase())).size > 1) hues.push(m);
+  }
+  for (const [m, r, g, b] of css.matchAll(/rgba?\((\d+),\s*(\d+),\s*(\d+)/g)) if (r !== g || g !== b) hues.push(m);
+  assert.deepEqual(hues, []);
+  for (const tone of ['#282828', '#505050', '#828282', '#bababa', '#e2e2e2'])   // firmware/src/gfx.c MONO
+    assert.match(css, new RegExp(tone), tone);
+});
+
+import { parseBdf, buildFont, woff, WANT } from './sim_font.mjs';
+test('the type is the firmware\'s: Terminus from its BDF as a web font, every character the page uses', () => {
+  const bdf = parseBdf(readFileSync('assets/fonts/ter-u16n.bdf', 'utf8'));
+  const tables = buildFont(bdf), font = woff(tables);
+  assert.equal(font.subarray(0, 4).toString(), 'wOFF');
+  const cps = new Set(bdf.glyphs.map(g => g.cp).filter(WANT));   // what the web font carries
+  const page = LANDING.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ');
+  const missing = [...new Set(page)].filter(ch => ch.trim() && !cps.has(ch.codePointAt(0)));
+  assert.deepEqual(missing, [], 'characters Terminus lacks');
+  assert.doesNotMatch(LANDING, /Archivo|IBM\+Plex/, 'no other typeface');
+  assert.match(readFileSync('web/sim/sim.css', 'utf8'), /@font-face\s*{[^}]*terminus\.woff/);
+});
+
+const words = html => html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#8209;/g, ' ').replace(/\s+/g, ' ');
+
+test('the first-visit demos (tests/sim_demo.c) play MNM-1\'s machines: the power-on kit and its synth machines', () => {
+  const src = readFileSync('tests/sim_demo.c', 'utf8');
+  const kits = [...src.slice(src.indexOf('SIM_KITS[4]')).matchAll(/\{\{((?:KIT|DM_\w+)(?:, (?:KIT|DM_\w+))*)\}/g)].slice(0, 4)
+    .map(m => m[1].split(', '));
+  assert.equal(kits.length, 4);
+  for (const k of kits) {
+    assert.equal(k.length, 6, 'six tracks');
+    for (const m of k) assert.ok(m === 'KIT' || /^DM_MM/.test(m), `an MNM-1 machine: ${m}`);
+  }
+  assert.ok(kits[0].every(m => m === 'KIT'), 'demo 1 is the power-on kit');
+});
+
+test('the hero shows the install count beside the install button: hidden until the count arrives, out of the flow', () => {
+  const hero = LANDING.slice(LANDING.indexOf('id="hero-copy"'), LANDING.indexOf('id="scroll-cue"'));
+  assert.match(hero, /<span class="cta-slot"><a class="cta ghost" href="webapp\/installer\/">[^<]*<\/a><span class="install-count" id="install-count" hidden><\/span><\/span>/);
+  const css = readFileSync('web/sim/sim.css', 'utf8');
+  assert.match(css, /\.cta-slot\s*{[^}]*position: relative/);
+  assert.match(css, /\.install-count\s*{[^}]*position: absolute/, 'no layout shift when it appears');
+  const app = readFileSync('web/sim/app.js', 'utf8');
+  assert.match(app, /installCount\(\)\.then\(/, 'fetched once, not awaited by the page');
+  assert.match(app, /import \{ installCount, loadPageCounter \} from '\.\/counter\.js';/);
+  assert.match(app, /^loadPageCounter\(\);/m, 'visits counted by count.js, added only where the counter is on');
+  assert.doesNotMatch(LANDING, /gc\.zgo\.at/, 'no count.js tag in the page itself (it would load on previews)');
+});

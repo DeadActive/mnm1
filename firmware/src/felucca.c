@@ -1,0 +1,199 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* FM-1 drum machine (Felucca fork): one compilation unit (the HAL is header-only). Order matters. */
+#include <stdint.h>
+#include "fm1_time.h"
+#include "fm1_sys.h"
+#include "fm1_irq.h"
+#include "fm1_guard.h"
+#include "fm1_input.h"
+#include "fm1_timer.h"
+#include "fm1_audio.h"
+#include "fm1_adc.h"
+#include "fm1_lcd_hw.h"
+#include "felucca_tables.h"
+
+#include "libc.c"
+#include "lcd.c"
+#include "gfx.c"
+#include "core.h"
+#include "dsp.c"
+#include "comp.c"           /* Streams compressor (M3) */
+#include "eng_sample.c"      /* ADPCM decoder + user sample slots */
+#include "dmodels.c"         /* drum models */
+#include "presets.c"         /* presets: the factory banks, the user bank, load / step */
+#include "params.c"
+#include "filter.c"          /* FILTER: the per-track filter (fx.c mix_part) */
+#include "lfo.c"            /* LFOs (two per track) */
+#include "drum_core.c"       /* 8 drum tracks */
+#include "slicer.c"          /* per-track SLICER insert, used by fx.c */
+#include "fx.c"
+#ifndef FELUCCA_OTA
+#define FELUCCA_OTA 1            /* M-UPGRADE update entry; needs FELUCCA_FLASH */
+#endif
+#ifndef FELUCCA_OTA_DRYRUN
+#define FELUCCA_OTA_DRYRUN 0     /* 1 = stage, ask "success", then undo: no record, no reset */
+#endif
+#ifndef FELUCCA_ID
+#define FELUCCA_ID "FM-1_900"    /* package identity (build.py: the .fwsc marker string) */
+#endif
+#ifndef FELUCCA_CDC
+#define FELUCCA_CDC 1            /* USB CDC-ACM serial console */
+#endif
+#ifndef FELUCCA_UAC
+#define FELUCCA_UAC 1            /* USB audio input: the master output, 16-bit stereo 44.1 kHz (usb_app.c) */
+#endif
+#include "usb_app.c"         /* upstream 1.0's USB driver (the update loader keeps usb.c) */
+#ifndef FELUCCA_UART
+#define FELUCCA_UART 1           /* TRS MIDI IN on UART1 / PH8 (upstream 1.0: on, RX verified on hardware) */
+#endif
+#ifndef FELUCCA_BLE
+#define FELUCCA_BLE 0            /* BLE MIDI (firmware/src/ble/, its own unit ble.o): the JieLi BT libraries */
+#endif
+#if FELUCCA_UART
+#include "midi_uart.c"
+#endif
+#include "grids.c"           /* Grids pattern engine (M2) */
+#include "seq.c"
+#include "arp.c"            /* ARP: the per-track arpeggiator (MNM-1) */
+#include "bench.c"           /* BENCH: the performance cases (console `bench`) */
+#include "audio.c"
+#include "enc.c"           /* the knobs: upstream 1.1.5's decoder (#126) on the scan's frames (led_dim.c hook) */
+#include "panel.c"
+#include "pages.c"
+#include "ui.c"
+#include "ui_draw.c"
+#include "ui_menu.c"
+#include "ui_input.c"
+#ifndef FELUCCA_FLASH
+#define FELUCCA_FLASH 1          /* flash driver + storage.c */
+#endif
+#if FELUCCA_OTA && !FELUCCA_FLASH
+#error "FELUCCA_OTA needs FELUCCA_FLASH"
+#endif
+#if FELUCCA_FLASH
+#include "fm1_flash.h"
+static uint8_t flash_ok;                 /* JEDEC id matched at boot (persist_boot) */
+static int st_read(uint32_t off, void *dst, uint32_t n)   /* 256-byte IRQ-off windows: audio keeps up */
+{
+    uint8_t *d = dst;
+    while (n) {
+        uint32_t k = n > 256u ? 256u : n, f = irq_save();
+        int rc = FL_FAR(fl_read_ram)(off, d, k);
+        irq_restore(f);
+        if (rc)
+            return rc;
+        off += k;
+        d += k;
+        n -= k;
+    }
+    return 0;
+}
+static void audio_silence(void)                 /* IRQs off: the DMA would loop stale audio (buzz) */
+{
+    uint32_t i;
+    for (i = 0; i < sizeof abuf / sizeof abuf[0]; i++)
+        abuf[i] = 0;
+}
+static int st_erase(uint32_t off)
+{
+    uint32_t took, f;
+    int rc;
+    if (!FL_STORE_OK(off, 0x1000u))
+        return -8;
+    f = irq_save();
+    audio_silence();
+    rc = FL_FAR(fl_erase4k_ram)(off, &took);
+    irq_restore(f);
+    return rc;
+}
+static int st_prog(uint32_t off, const void *src, uint32_t n)
+{
+    if (!FL_STORE_OK(off, n))
+        return -8;
+    return fl_write(off, src, n);
+}
+#include "storage.c"
+#endif
+#include "project.c"
+#if FELUCCA_OTA
+#include "ota.c"
+static uint32_t ota_now_ms(void) { return fm1_ms; }
+static void ota_idle(void) { fm1_wdt_feed(); }
+static int ota_in_area(uint32_t off, uint32_t n) { return FL_IN(off, n, OTA_AREA, OTA_AREA + OTA_AREA_LEN); }
+static int ota_erase(uint32_t off)
+{
+    uint32_t took;
+    if (!ota_in_area(off, 0x1000u) || (off & 0xFFFu))
+        return -8;
+    audio_silence();
+    return fl_erase4k(off, &took);
+}
+static int ota_prog(uint32_t off, const void *p, uint32_t n)
+{
+    if (!ota_in_area(off, n))
+        return -8;
+    return fl_write(off, p, n);
+}
+static int ota_fread(uint32_t off, void *p, uint32_t n) { return st_read(off, p, n); }
+static void ota_show(uint32_t step, int32_t code)
+{
+    static const char *const STEP[] = {"", "PACKAGE", "CHECK HEAD", "LOADER", "CONFIRM", "RESTART"};
+    char b[24];
+    lcd_fill(0, 0, 240, 240, C_BG);
+    draw_text_box(0, 92, 240, &FONT_S, "UPDATE", C_INK, 1);
+    if (step < 9u) {
+        draw_text_box(0, 124, 240, &FONT_S, STEP[step < 6u ? step : 0], C_INK, 1);
+        return;
+    }
+    if (code == 1)
+        str_cpy(b, "DRY RUN OK", sizeof b);
+    else {
+        uint32_t k = 0, v = (uint32_t)-code;
+        str_cpy(b, "FAILED  -", sizeof b);
+        while (b[k])
+            k++;
+        if (v >= 10u)
+            b[k++] = (char)('0' + v / 10u);
+        b[k++] = (char)('0' + v % 10u);
+        b[k] = 0;
+    }
+    draw_text_box(0, 124, 240, &FONT_S, b, C_INK, 1);
+    fm1_delay_ms(1500);
+}
+static void ota_commit(const uint8_t *parm)
+{
+    bootguard.pending = 0;                              /* intentional reset */
+    usb_detach();
+    fm1_delay_ms(30);
+    fm1_enter_update(parm);                             /* record into RAM, core reset (fm1_sys.h) */
+}
+#endif
+#if FELUCCA_BLE
+#if !FELUCCA_OTA
+#error "FELUCCA_BLE needs FELUCCA_OTA (ed_service, the main loop's hook)"
+#endif
+#include "ble/ble_core.h"            /* the BLE unit's entry points (ble.c) */
+#include "smc.c"                     /* the SMC-Mixer DAW layout: decode, actions, LEDs, fader pickup */
+#include "bt_midi.c"                 /* BLE MIDI in: the SMC-Mixer or the input ring (source 3) */
+#include "bt_page.c"                 /* the Bluetooth page (MENU > BLUETOOTH, ui_menu.c ui.menu 3) */
+#endif
+#if FELUCCA_OTA
+/* the web editor returns in M5; main.c still calls this. Safe as a no-op: ota_take() (ota_service)
+ * frees every SysEx frame, so editor frames cannot block the update handshake. FELUCCA_BLE: the BT stack's slice,
+ * every main-loop pass and in its 15 ms wait (spec amendment 3) */
+static void ed_service(void)
+{
+#if FELUCCA_BLE
+    ble_service();
+    smc_frame();                                        /* the SMC-Mixer's LEDs and fader positions (cheap: no change) */
+#endif
+}
+#endif
+#if FELUCCA_CDC
+#include "console.c"
+#endif
+#if FELUCCA_BLE
+#include "core_ble_api.c"            /* the BLE unit calls these */
+#endif
+#include "main.c"

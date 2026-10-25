@@ -1,0 +1,180 @@
+/* Host build of the drum fork's DSP, models, mix and sequencer (no hardware). Same sources as the
+ * firmware; reset helpers for independent tests. */
+#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <unistd.h>
+#include <libproc.h>
+#include <sys/resource.h>
+#define __attribute__(x)
+#define memset felucca_memset
+#define memcpy felucca_memcpy
+#define memcmp felucca_memcmp
+#define DRUM_HOST 1                                  /* (firmware: test hooks) */
+#include "felucca_tables.h"
+#include "../firmware/src/libc.c"
+#undef memset
+#undef memcpy
+#undef memcmp
+static struct { volatile uint32_t notes, buttons; } fm1_in;
+static void fm1_irq_off(void) {}                    /* (the main loop's guard: nothing to guard on the host) */
+static uint32_t host_irq_on;                         /* fm1_irq_on calls (boot_test: none before main.c's) */
+static void fm1_irq_on(void) { host_irq_on++; }
+#include "../firmware/src/core.h"
+#include "../firmware/src/dsp.c"
+#include "../firmware/src/comp.c"
+#include "../firmware/src/eng_sample.c"
+#include "../firmware/src/dmodels.c"
+#include "../firmware/src/presets.c"
+#include "../firmware/src/params.c"
+#include "../firmware/src/filter.c"
+#include "../firmware/src/lfo.c"
+#include "../firmware/src/drum_core.c"
+#include "../firmware/src/slicer.c"
+#include "../firmware/src/fx.c"
+static void fm1_delay_ms(uint32_t ms) { (void)ms; }
+#include "../firmware/src/usb_app.c"
+#include "../firmware/src/midi_uart.c"
+#include "../firmware/src/grids.c"
+#include "../firmware/src/seq.c"
+#include "../firmware/src/arp.c"
+#include "../firmware/src/bench.c"
+#include "old_defs.h"                                 /* the knob defaults up to drum 0.20.0 (the tests' "default") */
+
+static void host_reset_fx(void)                     /* FX buses, master, slicer, metal: as at power-on */
+{
+    uint32_t k;
+    memset(dly_buf, 0, sizeof dly_buf);
+    memset(cho_buf, 0, sizeof cho_buf);
+    memset(rev_comb, 0, sizeof rev_comb);
+    memset(rev_ap, 0, sizeof rev_ap);
+    memset(&fx, 0, sizeof fx);
+    memset(sl, 0, sizeof sl);
+    memset(sl_buf, 0, sizeof sl_buf);
+    memset(fxs, 0, sizeof fxs);                     /* MNM-1: the FX machines (mm_fx.c) */
+    memset(fxb, 0, sizeof fxb);
+    memset(td, 0, sizeof td);                       /* MNM-1: the tracks' delays (fx.c track_delay) */
+    memset(td_buf, 0, sizeof td_buf);
+    lim_env = LIM_T;
+    lc_l1 = lc_l2 = lc_r1 = lc_r2 = dc_l = dc_r = dce_l = dce_r = 0;
+    memset(lce, 0, sizeof lce);
+    dvage = 0;
+    mi_r = mi_w = 0;
+    kb_prev = 0;
+    memset(&kz, 0, sizeof kz);                      /* KEYS: no key sounding */
+    fm1_in.notes = 0;
+    transport_req = panic_req = 0;
+    memset(metal_ph, 0, sizeof metal_ph);
+    metal_blk = 0xFFFFFFFFu;
+    dblock = 0;
+    memset(&grids, 0, sizeof grids);
+    memset(&gclk, 0, sizeof gclk);
+    memset(&metro, 0, sizeof metro);                /* METRO: no click sounding (fx_metro, the setting, kept) */
+    memset(&pf, 0, sizeof pf);                      /* PERFORM (perform.c): nothing held, idle */
+    pf.src = pf.next = PF_N;
+    pf.lc = PF_TOP;
+    for (k = 0; k < NTRK; k++)
+        pf.mg[k] = 32768;
+    perf_mask = kb_layer = perf_held = perf_act = perf_kh = perf_mh = 0;
+    ml_down = 0;                                    /* MIDI LEARN (midi_learn.c): no button down, nothing queued */
+    ml_qr = ml_qw;
+    ml_arm = 0;
+    ml_heard = 0;
+    ml_keys = 0;
+    ml_kb_hit = 0;
+    mute_mask = kb_mute = kb_mute_hit = 0;          /* the MUTE screen's keys (seq.c): none */
+    perf_kill = 0;
+    perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;
+    perf_seq = 0;
+    memset(perf_ord, 0, sizeof perf_ord);
+    sl_lent = 0;
+    memset(&mo, 0, sizeof mo);                     /* MOTION: no events, nothing held */
+    memset(&chain, 0, sizeof chain);               /* SONG: none */
+    comp_reset();
+    comp_was = NTRK;
+}
+
+/* LFO l of t (MNM-1's, lfo.c): on PAGE page's knob dest (0..7), WAVE, SPD x MULT (a cycle 2048 / (SPD << MULT) steps),
+ * DPTH; TRIG FREE */
+static void lfo_set(track_t *t, uint32_t l, uint32_t page, uint32_t dest, uint32_t wave, uint32_t spd, uint32_t mult,
+                    uint32_t dpth)
+{
+    int16_t *q = &t->p[l == 0u ? P_LFO1 : l == 1u ? P_LFO2 : P_LFO3];
+    q[LF_PAGE] = (int16_t)page;
+    q[LF_DEST] = (int16_t)dest;
+    q[LF_WAVE] = (int16_t)wave;
+    q[LF_SPD] = (int16_t)spd;
+    q[LF_MULT] = (int16_t)mult;
+    q[LF_DPTH] = (int16_t)dpth;
+    q[LF_TRIG] = LT_FREE;
+}
+
+static void host_init_live(void)                    /* power-on as the firmware's (bench_reset): today's defaults */
+{
+    host_reset_fx();
+    memset(&song, 0, sizeof song);
+    drum_tracks_init();
+}
+
+static void host_init(void)                         /* power-on, the kit's knobs at the old defaults (old_defs.h) */
+{
+    host_init_live();
+    old_kit();
+}
+
+static int32_t blk[CTL];
+static void render_track(track_t *t, int32_t *dst, uint32_t frames)   /* one track, no FX */
+{
+    uint32_t f, i;
+    for (f = 0; f < frames; f += CTL) {
+        drum_block_begin();
+        track_render(t, blk, CTL);
+        for (i = 0; i < CTL && f + i < frames; i++)
+            if (dst)
+                dst[f + i] = blk[i];
+    }
+}
+
+static void dm_render_n(track_t *t, int32_t *out, uint32_t n)   /* the track's model voices only, CTL blocks (added to
+                                                                  * out; no mix, no tail) */
+{
+    uint32_t i, k;
+    for (i = 0; i + CTL <= n; i += CTL)
+        for (k = 0; k < NDV; k++)
+            if (t->v[k].active)
+                DMODELS[t->model].render(t, &t->v[k], out + i, CTL);
+}
+
+static int32_t mixo[2 * CTL];
+static void render_mix(int32_t *l, int32_t *r, uint32_t frames)      /* the whole mix (events, FX, master) */
+{
+    uint32_t f, i;
+    for (f = 0; f < frames; f += CTL) {
+        mix_block(mixo, CTL);
+        for (i = 0; i < CTL && f + i < frames; i++) {
+            if (l)
+                l[f + i] = mixo[2 * i];
+            if (r)
+                r[f + i] = mixo[2 * i + 1];
+        }
+    }
+}
+
+static uint32_t hit_age(const track_t *t)          /* changes on every hit of t (voice ages) */
+{
+    uint32_t a = 0, i;
+    for (i = 0; i < NDV; i++)
+        if (t->v[i].age > a)
+            a = t->v[i].age;
+    return a;
+}
+
+static uint64_t instr_now(void)
+{
+    struct rusage_info_v4 ri;
+    if (!proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&ri))
+        return ri.ri_instructions;
+    return 0;
+}

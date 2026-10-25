@@ -1,0 +1,142 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Drum machine fork: 2026 DEADACTIVE
+ * MNM-1: 2026 Piotr Szwach */
+/* The landing page's reel (Hortator spec 2026-10-07-websim-hero-design.md): the simulator core, headless,
+ * plays demo 1 while a scripted hand visits the pages and turns knobs; 30 s at 15 fps of the screen, the LEDs and the
+ * knob turns, written as "FM1R" (screen changes only), plus the last screen's hash for the test and the clips (each
+ * page's stretch, named: the landing page plays them per feature) as JSON.
+ *   sim_record OUT.bin OUT.hash OUT.json */
+#include "sim_core.c"
+#include <stdio.h>
+
+#define FPS 15u
+#define SECONDS 34u
+#define FRAME_SAMPLES (FS / FPS)                          /* 2940 */
+
+typedef struct { float t; char what; uint8_t id; int8_t val; const char *clip; } act_t;   /* b = tap button,
+                                                          * p / r = press / release a button (held), k = tap a key,
+                                                          * e = turn encoder, m = a clip starts here */
+static const act_t SCRIPT[] = {                           /* MNM-1: HOME's scope, the steps, then the 8-knob
+                                                           * pages (SYNTH, FILTER, EFFECTS, LFO) with knobs turned,
+                                                           * TRACKS and the MUTE screen (GLO held) */
+    {0.0f, 'm', 0, 0, "home"},
+    {3.6f, 'b', B_SEQ, 0}, {3.6f, 'm', 0, 0, "seq"},     /* the step grid of track 1, the playhead running */
+    {6.4f, 'e', EN_ALGO, 3},                              /* track 4: the SWSAW bass */
+    {8.0f, 'b', B_EDIT, 0}, {8.0f, 'm', 0, 0, "synth"},  /* its SYNTH page: a knob swept up and back */
+    {8.9f, 'e', EN_K2, 3}, {9.3f, 'e', EN_K2, 3}, {9.7f, 'e', EN_K2, 3}, {10.3f, 'e', EN_K2, -3},
+    {10.7f, 'e', EN_K2, -3}, {11.1f, 'e', EN_K2, -3},
+    {12.0f, 'b', B_ENV, 0}, {12.0f, 'm', 0, 0, "filter"},   /* FILTER: BASE and WDTH */
+    {12.9f, 'e', EN_K2, -4}, {13.4f, 'e', EN_K2, -4}, {13.9f, 'e', EN_K1, 4}, {14.4f, 'e', EN_K1, 4},
+    {14.9f, 'e', EN_K1, -4}, {15.4f, 'e', EN_K1, -4}, {15.9f, 'e', EN_K2, 4}, {16.2f, 'e', EN_K2, 4},
+    {16.8f, 'b', B_FX, 0}, {16.8f, 'm', 0, 0, "effects"},   /* EFFECTS: EQ and the delay time */
+    {17.7f, 'e', EN_K4, 4}, {18.2f, 'e', EN_K4, 4}, {18.8f, 'e', EN_K4, -4}, {19.3f, 'e', EN_K4, -4},
+    {20.4f, 'b', B_LFO, 0}, {20.4f, 'm', 0, 0, "lfo"},    /* LFO 1: its knobs turned */
+    {21.3f, 'e', EN_K2, 2}, {21.8f, 'e', EN_K4, 3}, {22.4f, 'e', EN_K4, -3}, {22.9f, 'e', EN_K2, -2},
+    {23.6f, 'e', EN_ALGO, -3},
+    {24.0f, 'b', B_HOME, 0}, {24.0f, 'm', 0, 0, "tracks"},   /* HOME: TRACKS, the mixer's meters */
+    {27.0f, 'p', B_GLO, 0},                               /* GLO held: the MUTE screen (after 0.4 s) */
+    {27.8f, 'k', 4, 0}, {28.2f, 'k', 5, 0},               /* tracks muted (MUTE: NOW) */
+    {29.0f, 'k', 4, 0}, {29.4f, 'k', 5, 0},               /* and back */
+    {29.8f, 'r', B_GLO, 0},                               /* let go: TRACKS again */
+    {33.0f, 'b', B_HOME, 0}, {33.0f, 'm', 0, 0, "end"},  /* back to HOME's scope for the loop */
+};
+#define NACT (sizeof SCRIPT / sizeof SCRIPT[0])
+
+#include "sim_reel.h"
+
+static void hold_for(uint32_t samples)
+{
+    while (samples) {
+        uint32_t n = samples < SIM_MAX_FRAMES ? samples : SIM_MAX_FRAMES;
+        sim_render(n);
+        samples -= n;
+    }
+}
+
+static void tap_key(uint32_t k)                          /* a note key, held 0.12 s */
+{
+    sim_key(k, 1);
+    hold_for(FS * 12u / 100u);
+    sim_key(k, 0);
+}
+
+int main(int argc, char **argv)
+{
+    FILE *f, *h;
+    uint32_t frame, next = 0, i;
+    const uint8_t *p;
+    uint32_t hash = 2166136261u;
+    if (argc != 4) {
+        fprintf(stderr, "usage: sim_record OUT.bin OUT.hash OUT.json\n");
+        return 2;
+    }
+    sim_init(1);                                          /* the first visit: demo 1 loaded */
+    tap_btn(B_HOME);                                      /* HOME's second mode: the scope (power-on shows TRACKS) */
+    tap_btn(B_PLAY);
+    for (i = 0; i < FS * 2u / SIM_MAX_FRAMES; i++)        /* 2 s in: the pattern runs, LOADED has gone */
+        sim_render(SIM_MAX_FRAMES);
+    f = fopen(argv[1], "wb");
+    if (!f)
+        return 1;
+    fwrite("FM1R", 1, 4, f);
+    put16(f, 1);
+    put16(f, FPS);
+    put32(f, FPS * SECONDS);
+    for (frame = 0; frame < FPS * SECONDS; frame++) {
+        int8_t enc[8] = {0};
+        uint32_t left = FRAME_SAMPLES;
+        while (next < NACT && SCRIPT[next].t * FPS <= (float)frame) {
+            const act_t *a = &SCRIPT[next++];
+            if (a->what == 'm')
+                continue;
+            if (a->what == 'b')
+                tap_btn(a->id);
+            else if (a->what == 'p' || a->what == 'r')
+                sim_btn(a->id, a->what == 'p');
+            else if (a->what == 'k')
+                tap_key(a->id);
+            else {
+                sim_enc(a->id, a->val);
+                enc[a->id] = (int8_t)(enc[a->id] + a->val);
+            }
+        }
+        while (left) {
+            uint32_t n = left < SIM_MAX_FRAMES ? left : SIM_MAX_FRAMES;
+            sim_render(n);
+            left -= n;
+        }
+        write_frame(f, enc, frame == 0u);
+    }
+    fclose(f);
+    for (p = (const uint8_t *)sim_fb(), i = 0; i < 240u * 240u * 2u; i++)
+        hash = (hash ^ p[i]) * 16777619u;
+    h = fopen(argv[2], "w");
+    if (!h)
+        return 1;
+    fprintf(h, "%u\n", hash);
+    fclose(h);
+    h = fopen(argv[3], "w");                              /* the clips: [{name, from, to}], frames */
+    if (!h)
+        return 1;
+    fprintf(h, "[");
+    {
+        uint32_t k, first = 1;
+        for (i = 0; i < NACT; i++) {
+            uint32_t from, to = FPS * SECONDS;
+            if (SCRIPT[i].what != 'm')
+                continue;
+            from = (uint32_t)(SCRIPT[i].t * FPS + 0.999f);
+            for (k = i + 1; k < NACT; k++)
+                if (SCRIPT[k].what == 'm') {
+                    to = (uint32_t)(SCRIPT[k].t * FPS + 0.999f);
+                    break;
+                }
+            fprintf(h, "%s\n  {\"name\": \"%s\", \"from\": %u, \"to\": %u}", first ? "" : ",", SCRIPT[i].clip, from, to);
+            first = 0;
+        }
+    }
+    fprintf(h, "\n]\n");
+    fclose(h);
+    printf("sim_record: %u frames at %u fps -> %s\n", FPS * SECONDS, FPS, argv[1]);
+    return 0;
+}
