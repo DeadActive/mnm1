@@ -9,7 +9,7 @@
  * EDIT held PP_HOLD_MS (as GLO_HOLD_MS): the PRESETS list. The press still acts at once, as a tap (SOUND, its next
  * page); the hold puts the page before the press back under the list. Step record keeps EDIT for its rest (no list);
  * while MIDI LEARN is on the hold does nothing (the list would end LEARN: ui_learn.c ml_guard).
- * The list: every preset by bank (MD, MODERN, CLASSIC, USER with its 128 slots, empty ones too), the track's
+ * The list: every preset by bank (MNM, MD, MODERN, CLASSIC, USER with its 128 slots, empty ones too), the track's
  * own marked. KNOB 1 / PRESETS the cursor, KNOB 2 / SELECT the bank (its first), ALGORITHM / a white key the track (the
  * keys play, as on HOME). Each cursor move auditions the preset under it (owner, 2026-10-19): the track takes its MODEL
  * and 8 knobs for now and is hit once (its key and the pattern play it too; an empty slot or a capped ACID: said, the
@@ -25,7 +25,7 @@
 #define PL_ROWS 7u                                      /* the list's rows */
 #define PL_RH 20                                        /* .. their height */
 #define PL_HALF 4u                                      /* .. drawn 4 at a time (cv_begin's CV_MAX: 6 rows) */
-static const char *const PB_TAB[PB_N] = {"MD", "MODERN", "CLASSIC", "USER"};
+static const char *const PB_TAB[PB_N] = {"MNM", "MD", "MODERN", "CLASSIC", "USER"};
 
 static int pp_on(void) { return ui.pr.pop; }
 static int pl_on(void) { return ui.pr.lst; }
@@ -455,10 +455,11 @@ static void draw_plist(void)
         fmt_int(b + str_len(b), (int32_t)(PRE_BANK_START[bank + 1u] - PRE_BANK_START[bank]));
         md_text(234 - md_text_w(&MD_F3, 2, b), 3, &MD_F3, 2, b, C_BG);
     }
-    for (i = 0, x = 4; i < PB_N; i++) {                /* the cursor's bank a solid tab, the others outlined */
-        int32_t w = md_text_w(&MD_F3, 2, PB_TAB[i]) + 10;
+    for (i = 0, x = 3; i < PB_N; i++) {                /* the cursor's bank a solid tab, the others outlined (MNM-1:
+                                                        * five banks, narrower tabs to fit 240) */
+        int32_t w = md_text_w(&MD_F3, 2, PB_TAB[i]) + 6;
         cv_button(x, 23, w, PB_TAB[i], i == bank, C_INK, C_BG);
-        x += w + 6;
+        x += w + 3;
     }
     cv_hdot(1, 238, 44, C_INK);
     cv_blit(0, 0);

@@ -14,7 +14,7 @@ MNM-1's own.
 - **Play it in your browser:** <https://galfaroth.github.io/mnm1/>. The page runs the real firmware, compiled to
   WebAssembly, on an FM-1 you can play with the mouse, a touch screen or the computer keyboard.
 - **Install it on your FM-1:** <https://galfaroth.github.io/mnm1/webapp/installer/>, in Chrome or Edge, over the
-  FM-1's USB cable. Or from a terminal: `python3 tools/fm1_install.py mnm1-0.5.1.fwsc --port FM-1 --yes`
+  FM-1's USB cable. Or from a terminal: `python3 tools/fm1_install.py mnm1-0.6.0.fwsc --port FM-1 --yes`
   (needs `mido` and `python-rtmidi`).
 - **What comes next:** [docs/ROADMAP.md](docs/ROADMAP.md).
 - **What changed:** [CHANGELOG.md](CHANGELOG.md).
@@ -37,6 +37,8 @@ responsibility if your FM-1 is damaged or misbehaves. M-VAVE's own updater takes
 - **Three LFOs a track:** any knob of the track, another LFO, or pitch; FREE, TRIG, HOLD, ONE, HALF; eleven waves.
 - **Parameter locks:** a lock lasts until the next trig; up to 240 a project, recorded live or set in
   LOCK mode; **parameter slide** glides locked values to the next lock.
+- **Presets:** 55 factory presets for the synth and FX machines (bank MNM), besides the drum banks and 128 user
+  slots. The PRESETS knob steps through them; hold EDIT for the list.
 - **From Hortator:** up to 64 steps per track with its own length, PROB and A/B conditions, ratchets, accents,
   a per-track arpeggiator, live recording, mutes, SONG, the COMP sidechain compressor, PERFORM (live master effects),
   MIDI and clock over USB and TRS, MIDI LEARN, four project slots.
@@ -84,7 +86,7 @@ The web simulator and site ([docs/SIMULATOR.md](docs/SIMULATOR.md)) need Python 
 emscripten (a native `emcc`, e.g. `brew install emscripten`, or Docker):
 
 ```sh
-tools/build_sim.sh --preview --package dist/mnm1-0.5.1.fwsc
+tools/build_sim.sh --preview --package dist/mnm1-0.6.0.fwsc
 cd build/sim/preview && python3 -m http.server 8001
 ```
 

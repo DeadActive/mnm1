@@ -1,5 +1,945 @@
 [
  {
+  "bank": "MNM",
+  "presets": [
+   {
+    "uid": 152,
+    "name": "SUPERSAW",
+    "model": "MMSAW",
+    "k": [
+     0,
+     40,
+     3,
+     0,
+     0,
+     127,
+     100,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the machine's default: three saws, a light detune"
+   },
+   {
+    "uid": 153,
+    "name": "HOOVER",
+    "model": "MMSAW",
+    "k": [
+     0,
+     90,
+     5,
+     60,
+     0,
+     110,
+     60,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "five wide saws over the sub square"
+   },
+   {
+    "uid": 154,
+    "name": "SAWBASS",
+    "model": "MMSAW",
+    "k": [
+     0,
+     12,
+     2,
+     40,
+     0,
+     70,
+     100,
+     -1
+    ],
+    "source": "designed (MNM-1)",
+    "note": "two tight saws an octave down, the sub up, darker"
+   },
+   {
+    "uid": 155,
+    "name": "TRANCE",
+    "model": "MMSAW",
+    "k": [
+     0,
+     60,
+     5,
+     0,
+     0,
+     127,
+     80,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "five bright saws, a wide stack for chords and leads"
+   },
+   {
+    "uid": 156,
+    "name": "WARMPAD",
+    "model": "MMSAW",
+    "k": [
+     0,
+     30,
+     4,
+     0,
+     0,
+     70,
+     64,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "four soft saws, the tone low-passed"
+   },
+   {
+    "uid": 157,
+    "name": "PWMLEAD",
+    "model": "MMPLS",
+    "k": [
+     0,
+     64,
+     40,
+     40,
+     0,
+     0,
+     20,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the machine's default: a square, its width swept"
+   },
+   {
+    "uid": 158,
+    "name": "SQRBASS",
+    "model": "MMPLS",
+    "k": [
+     0,
+     64,
+     0,
+     0,
+     90,
+     0,
+     0,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "a still square over its sub"
+   },
+   {
+    "uid": 159,
+    "name": "THINPLS",
+    "model": "MMPLS",
+    "k": [
+     0,
+     110,
+     20,
+     30,
+     0,
+     0,
+     0,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "a narrow pulse, nasal"
+   },
+   {
+    "uid": 160,
+    "name": "PWMPAD",
+    "model": "MMPLS",
+    "k": [
+     0,
+     64,
+     90,
+     20,
+     30,
+     0,
+     30,
+     80
+    ],
+    "source": "designed (MNM-1)",
+    "note": "deep slow PWM and a second detuned pulse"
+   },
+   {
+    "uid": 161,
+    "name": "CHORUSPL",
+    "model": "MMPLS",
+    "k": [
+     0,
+     70,
+     50,
+     60,
+     0,
+     0,
+     40,
+     127
+    ],
+    "source": "designed (MNM-1)",
+    "note": "two pulses beating, a chorus of its own"
+   },
+   {
+    "uid": 162,
+    "name": "SIDPULS",
+    "model": "MMSID",
+    "k": [
+     0,
+     2,
+     48,
+     12,
+     0,
+     0,
+     0,
+     12
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the machine's default: the chip's pulse"
+   },
+   {
+    "uid": 163,
+    "name": "SIDSYNC",
+    "model": "MMSID",
+    "k": [
+     0,
+     1,
+     48,
+     19,
+     0,
+     1,
+     0,
+     12
+    ],
+    "source": "designed (MNM-1)",
+    "note": "saw hard-synced to oscillator 2"
+   },
+   {
+    "uid": 164,
+    "name": "SIDRING",
+    "model": "MMSID",
+    "k": [
+     0,
+     0,
+     48,
+     7,
+     0,
+     0,
+     1,
+     12
+    ],
+    "source": "designed (MNM-1)",
+    "note": "triangle ring-modulated a fifth up"
+   },
+   {
+    "uid": 165,
+    "name": "SIDBASS",
+    "model": "MMSID",
+    "k": [
+     0,
+     1,
+     48,
+     -12,
+     80,
+     0,
+     0,
+     12
+    ],
+    "source": "designed (MNM-1)",
+    "note": "saw with oscillator 2 an octave down"
+   },
+   {
+    "uid": 166,
+    "name": "CHIPTRI",
+    "model": "MMSID",
+    "k": [
+     0,
+     0,
+     48,
+     12,
+     0,
+     0,
+     0,
+     8
+    ],
+    "source": "designed (MNM-1)",
+    "note": "8-bit triangle"
+   },
+   {
+    "uid": 167,
+    "name": "SIDNOISE",
+    "model": "MMSID",
+    "k": [
+     0,
+     3,
+     48,
+     12,
+     0,
+     0,
+     0,
+     8
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the chip's noise: snares and hats from the notes"
+   },
+   {
+    "uid": 168,
+    "name": "FIFTHS",
+    "model": "MMSID",
+    "k": [
+     0,
+     2,
+     30,
+     7,
+     90,
+     0,
+     0,
+     12
+    ],
+    "source": "designed (MNM-1)",
+    "note": "two pulses a fifth apart"
+   },
+   {
+    "uid": 169,
+    "name": "FMKEYS",
+    "model": "MMFM",
+    "k": [
+     0,
+     1,
+     40,
+     0,
+     60,
+     64,
+     0,
+     1
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the machine's default: 1:1, a soft index envelope"
+   },
+   {
+    "uid": 170,
+    "name": "EPIANO",
+    "model": "MMFM",
+    "k": [
+     0,
+     14,
+     30,
+     0,
+     40,
+     100,
+     0,
+     1
+    ],
+    "source": "designed (MNM-1)",
+    "note": "a 13:1 tine over the carrier, fast decay"
+   },
+   {
+    "uid": 171,
+    "name": "FMBASS",
+    "model": "MMFM",
+    "k": [
+     0,
+     1,
+     70,
+     30,
+     30,
+     110,
+     0,
+     1
+    ],
+    "source": "designed (MNM-1)",
+    "note": "plucked 1:1 with feedback"
+   },
+   {
+    "uid": 172,
+    "name": "TUBEBELL",
+    "model": "MMFM",
+    "k": [
+     0,
+     6,
+     60,
+     0,
+     90,
+     100,
+     0,
+     1
+    ],
+    "source": "designed (MNM-1)",
+    "note": "3.5:1, a long index decay"
+   },
+   {
+    "uid": 173,
+    "name": "METALFM",
+    "model": "MMFM",
+    "k": [
+     0,
+     13,
+     100,
+     60,
+     50,
+     80,
+     0,
+     1
+    ],
+    "source": "designed (MNM-1)",
+    "note": "11:1 with feedback, metallic"
+   },
+   {
+    "uid": 174,
+    "name": "FMBRASS",
+    "model": "MMFM",
+    "k": [
+     0,
+     1,
+     55,
+     20,
+     127,
+     40,
+     0,
+     1
+    ],
+    "source": "designed (MNM-1)",
+    "note": "1:1, the index held"
+   },
+   {
+    "uid": 175,
+    "name": "DPROWAVE",
+    "model": "MMDP",
+    "k": [
+     0,
+     36,
+     30,
+     0,
+     0,
+     0,
+     16,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the machine's default: near the saw"
+   },
+   {
+    "uid": 176,
+    "name": "ORGAN",
+    "model": "MMDP",
+    "k": [
+     0,
+     80,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the organ cycle, still"
+   },
+   {
+    "uid": 177,
+    "name": "VOXSCAN",
+    "model": "MMDP",
+    "k": [
+     0,
+     96,
+     20,
+     40,
+     0,
+     0,
+     16,
+     40
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the vox cycle, scanned, a second oscillator"
+   },
+   {
+    "uid": 178,
+    "name": "FOLDBASS",
+    "model": "MMDP",
+    "k": [
+     0,
+     0,
+     0,
+     0,
+     80,
+     0,
+     0,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "a sine folded into harmonics"
+   },
+   {
+    "uid": 179,
+    "name": "SYNCSWP",
+    "model": "MMDP",
+    "k": [
+     0,
+     112,
+     40,
+     30,
+     20,
+     0,
+     10,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the sync cycle swept"
+   },
+   {
+    "uid": 180,
+    "name": "SCANPAD",
+    "model": "MMDP",
+    "k": [
+     0,
+     40,
+     10,
+     90,
+     0,
+     0,
+     20,
+     90
+    ],
+    "source": "designed (MNM-1)",
+    "note": "a slow deep scan, two oscillators"
+   },
+   {
+    "uid": 181,
+    "name": "GNDSINE",
+    "model": "MMGND",
+    "k": [
+     0,
+     0,
+     100,
+     0,
+     30,
+     0,
+     0,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the machine's default: a plain sine"
+   },
+   {
+    "uid": 182,
+    "name": "GNDKICK",
+    "model": "MMGND",
+    "k": [
+     -24,
+     0,
+     100,
+     80,
+     34,
+     0,
+     0,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the power-on kit's kick: two octaves down, a pitch drop"
+   },
+   {
+    "uid": 183,
+    "name": "GNDTOM",
+    "model": "MMGND",
+    "k": [
+     -12,
+     0,
+     100,
+     40,
+     40,
+     0,
+     10,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "a tom, a little noise"
+   },
+   {
+    "uid": 184,
+    "name": "GNDHAT",
+    "model": "MMGND",
+    "k": [
+     24,
+     2,
+     127,
+     0,
+     30,
+     0,
+     0,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "bright noise"
+   },
+   {
+    "uid": 185,
+    "name": "ZAP",
+    "model": "MMGND",
+    "k": [
+     0,
+     0,
+     100,
+     127,
+     15,
+     0,
+     0,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "a four-octave pitch drop"
+   },
+   {
+    "uid": 186,
+    "name": "DIGINOIS",
+    "model": "MMGND",
+    "k": [
+     0,
+     3,
+     100,
+     0,
+     30,
+     0,
+     0,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "pitched digital noise"
+   },
+   {
+    "uid": 187,
+    "name": "SUBSINE",
+    "model": "MMGND",
+    "k": [
+     -12,
+     0,
+     100,
+     0,
+     30,
+     0,
+     0,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "a sine an octave down"
+   },
+   {
+    "uid": 188,
+    "name": "VOX AH",
+    "model": "MMVO",
+    "k": [
+     0,
+     0,
+     0,
+     10,
+     0,
+     64,
+     0,
+     20
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the machine's default: A, a little breath"
+   },
+   {
+    "uid": 189,
+    "name": "CHOIR",
+    "model": "MMVO",
+    "k": [
+     0,
+     40,
+     0,
+     30,
+     0,
+     40,
+     0,
+     40
+    ],
+    "source": "designed (MNM-1)",
+    "note": "between E and I, breathy, wide formants"
+   },
+   {
+    "uid": 190,
+    "name": "WHISPER",
+    "model": "MMVO",
+    "k": [
+     0,
+     60,
+     0,
+     127,
+     0,
+     64,
+     0,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "breath only"
+   },
+   {
+    "uid": 191,
+    "name": "ROBOT",
+    "model": "MMVO",
+    "k": [
+     0,
+     90,
+     10,
+     0,
+     1,
+     100,
+     0,
+     0
+    ],
+    "source": "designed (MNM-1)",
+    "note": "a pulse through narrow formants, no vibrato"
+   },
+   {
+    "uid": 192,
+    "name": "OOH",
+    "model": "MMVO",
+    "k": [
+     0,
+     127,
+     -10,
+     10,
+     0,
+     64,
+     0,
+     30
+    ],
+    "source": "designed (MNM-1)",
+    "note": "U, the formants a little down"
+   },
+   {
+    "uid": 193,
+    "name": "LOWVOX",
+    "model": "MMVO",
+    "k": [
+     0,
+     20,
+     -40,
+     10,
+     0,
+     64,
+     0,
+     20
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the formants far down"
+   },
+   {
+    "uid": 194,
+    "name": "PLATE",
+    "model": "FXREV",
+    "k": [
+     80,
+     40,
+     127,
+     64,
+     0,
+     127,
+     0,
+     64
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the machine's default plate"
+   },
+   {
+    "uid": 195,
+    "name": "BIGROOM",
+    "model": "FXREV",
+    "k": [
+     110,
+     30,
+     127,
+     80,
+     10,
+     100,
+     0,
+     64
+    ],
+    "source": "designed (MNM-1)",
+    "note": "long and open"
+   },
+   {
+    "uid": 196,
+    "name": "GATEDREV",
+    "model": "FXREV",
+    "k": [
+     100,
+     40,
+     40,
+     90,
+     0,
+     127,
+     0,
+     64
+    ],
+    "source": "designed (MNM-1)",
+    "note": "a gated reverb"
+   },
+   {
+    "uid": 197,
+    "name": "CHORUS",
+    "model": "FXCHO",
+    "k": [
+     40,
+     50,
+     30,
+     64,
+     0,
+     127,
+     0,
+     64
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the machine's default"
+   },
+   {
+    "uid": 198,
+    "name": "WIDECHO",
+    "model": "FXCHO",
+    "k": [
+     70,
+     80,
+     15,
+     80,
+     20,
+     90,
+     0,
+     64
+    ],
+    "source": "designed (MNM-1)",
+    "note": "slow and deep"
+   },
+   {
+    "uid": 199,
+    "name": "FLANGER",
+    "model": "FXFLG",
+    "k": [
+     20,
+     60,
+     30,
+     64,
+     40,
+     0,
+     0,
+     64
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the machine's default"
+   },
+   {
+    "uid": 200,
+    "name": "JETFLNG",
+    "model": "FXFLG",
+    "k": [
+     5,
+     90,
+     10,
+     80,
+     55,
+     0,
+     0,
+     64
+    ],
+    "source": "designed (MNM-1)",
+    "note": "slow and resonant"
+   },
+   {
+    "uid": 201,
+    "name": "COMBRING",
+    "model": "FXFLG",
+    "k": [
+     30,
+     0,
+     0,
+     64,
+     60,
+     0,
+     0,
+     64
+    ],
+    "source": "designed (MNM-1)",
+    "note": "still: a comb that rings"
+   },
+   {
+    "uid": 202,
+    "name": "PHASER",
+    "model": "FXPHS",
+    "k": [
+     64,
+     60,
+     30,
+     64,
+     30,
+     0,
+     0,
+     64
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the machine's default"
+   },
+   {
+    "uid": 203,
+    "name": "SLOWPHS",
+    "model": "FXPHS",
+    "k": [
+     64,
+     90,
+     8,
+     80,
+     45,
+     0,
+     0,
+     64
+    ],
+    "source": "designed (MNM-1)",
+    "note": "slow and deep"
+   },
+   {
+    "uid": 204,
+    "name": "COMPRESS",
+    "model": "FXDYN",
+    "k": [
+     20,
+     40,
+     80,
+     127,
+     40,
+     20,
+     0,
+     64
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the machine's default"
+   },
+   {
+    "uid": 205,
+    "name": "LIMITER",
+    "model": "FXDYN",
+    "k": [
+     5,
+     30,
+     60,
+     127,
+     127,
+     40,
+     0,
+     64
+    ],
+    "source": "designed (MNM-1)",
+    "note": "a hard ceiling"
+   },
+   {
+    "uid": 206,
+    "name": "RINGMOD",
+    "model": "FXRING",
+    "k": [
+     0,
+     127,
+     127,
+     0,
+     0,
+     0,
+     0,
+     64
+    ],
+    "source": "designed (MNM-1)",
+    "note": "the machine's default: a sine carrier at the note"
+   }
+  ]
+ },
+ {
   "bank": "MD",
   "presets": [
    {

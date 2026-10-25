@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Drum machine fork: 2026 DEADACTIVE
-// MNM-1: 2026 Piotr Szwach
+// MNM-1: 2026 Veff
 // The site around the simulator: the landing page (web/sim/index.html) and the restyled English installer
 // (web/index_pkg.html). Run from the repo root: node tests/sim_site.mjs
 import { test } from 'node:test';

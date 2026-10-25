@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Drum machine fork: 2026 DEADACTIVE
- * MNM-1: 2026 Piotr Szwach */
+ * MNM-1: 2026 Veff */
 /* The web simulator's first-visit demos, saved to project slots 1-4 with the firmware's own project_save; slot 1 is
  * then loaded (and remembered as the last project, so a returning visit opens it), so PLAY grooves at once. Each demo
  * starts from MNM-1's power-on kit (drum_core.c: GND kick, FM+ snare through the FLANGER on T3, SWSAW bass, SWPLS arp

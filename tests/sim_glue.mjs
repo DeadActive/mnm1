@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Drum machine fork: 2026 DEADACTIVE
-// MNM-1: 2026 Piotr Szwach
+// MNM-1: 2026 Veff
 // The web simulator's page glue on the built wasm (tools/build_sim.sh): node tests/sim_glue.mjs [build/sim]
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

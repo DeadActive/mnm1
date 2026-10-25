@@ -922,9 +922,41 @@ static void test_plocks(void)
     check("lock_drop: the step's locks gone", lock_count_step(0, 5) == 0u && mo.s.count == 0u);
 }
 
+/* the MNM bank (tools/presets.json): every synth machine's preset sounds, bounded, at C4 and two octaves down */
+static void test_presets(void)
+{
+    uint32_t id, n = 0, ok = 1;
+    for (id = PRE_BANK_START[PB_MNM]; id < PRE_BANK_START[PB_MNM + 1]; id++) {
+        preset_t p;
+        int32_t nt;
+        if (!preset_get(id, &p) || !DMODELS[p.model].mm || DMODELS[p.model].fx)
+            continue;
+        for (nt = 0; nt >= -24; nt -= 24) {
+            track_t *t = solo(p.model);
+            double r;
+            int32_t pk;
+            preset_load(t, id);
+            drum_play(t, 127, nt);
+            t->gate_n = hit_gate_len(t);
+            render_chain(t, wl, SECS(0.5));
+            r = rms_of(wl, SECS(0.01), SECS(0.08));
+            pk = peak_of(wl, 0, SECS(0.5));
+            if (nt == 0)
+                printf("     %-8s %-5s rms %6.0f peak %6d\n", p.name, N_MODEL[p.model], r, pk);
+            if (!(r > 800.0 && pk <= 2 * VOICE_FS)) {
+                printf("      %s at %d: rms %.0f peak %d\n", p.name, nt, r, pk);
+                ok = 0;
+            }
+        }
+        n++;
+    }
+    check("every MNM synth preset sounds, bounded (under 2 x a voice's full scale), at C4 and C2", ok && n >= 40u);
+}
+
 int main(int argc, char **argv)
 {
     test_machines();
+    test_presets();
     test_amp();
     test_port_slide();
     test_arp();

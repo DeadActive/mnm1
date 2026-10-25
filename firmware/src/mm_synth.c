@@ -234,7 +234,10 @@ enum { SW_TRI, SW_SAW, SW_PULS, SW_NOIS, SW_TS };
 static const char *const N_MMONOFF[] = {"OFF", "ON"};
 static inline int32_t mmsid_wave(uint32_t w, uint32_t ph, uint32_t pw, int32_t *nz, mm_t *m, uint32_t ring)
 {
-    int32_t tri = (int32_t)(((ph ^ (ring ? 0x80000000u : 0u)) & 0x80000000u ? ~ph : ph) >> 15) - 32768;
+    int32_t tri = (int32_t)((ph & 0x80000000u ? ~ph : ph) >> 15) - 32768;
+    if (ring)
+        tri = ~tri;                                      /* RING: oscillator 2's top bit turns the triangle over (the
+                                                          * chip's XOR), within its range */
     switch (w) {
     case SW_TRI:
         return tri;

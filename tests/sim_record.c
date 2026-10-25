@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Drum machine fork: 2026 DEADACTIVE
- * MNM-1: 2026 Piotr Szwach */
+ * MNM-1: 2026 Veff */
 /* The landing page's reel (Hortator spec 2026-10-07-websim-hero-design.md): the simulator core, headless,
  * plays demo 1 while a scripted hand visits the pages and turns knobs; 30 s at 15 fps of the screen, the LEDs and the
  * knob turns, written as "FM1R" (screen changes only), plus the last screen's hash for the test and the clips (each

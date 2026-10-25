@@ -5,6 +5,18 @@ own history is in its repository.
 
 ## Unreleased
 
+## 0.6.0 - 2026-10-25
+
+- PRESETS: a new bank, MNM, first in the list: 55 presets for MNM-1's machines. SWSAW (SUPERSAW HOOVER SAWBASS
+  TRANCE WARMPAD), SWPLS (PWMLEAD SQRBASS THINPLS PWMPAD CHORUSPL), SID (SIDPULS SIDSYNC SIDRING SIDBASS CHIPTRI
+  SIDNOISE FIFTHS), FM+ (FMKEYS EPIANO FMBASS TUBEBELL METALFM FMBRASS), DPRO (DPROWAVE ORGAN VOXSCAN FOLDBASS
+  SYNCSWP SCANPAD), GND (GNDSINE GNDKICK GNDTOM GNDHAT ZAP DIGINOIS SUBSINE), VO-6 (VOX AH CHOIR WHISPER ROBOT OOH
+  LOWVOX) and the FX machines (PLATE BIGROOM GATEDREV, CHORUS WIDECHO, FLANGER JETFLNG COMBRING, PHASER SLOWPHS,
+  COMPRESS LIMITER, RINGMOD). A preset sets the machine and its 8 SYNTH knobs. Each machine's first preset is its
+  default sound. The PRESETS knob steps through them; EDIT held opens the list.
+- SID: RING on with the TRI wave played far out of range (a loud, broken sound); the ring now turns the triangle over
+  within its range.
+
 ## 0.5.1 - 2026-10-25
 
 - The PRESETS bank of the TRX and EFM voices is named MD. ABOUT's credits are shorter.
