@@ -1222,11 +1222,15 @@ static void graph_slots(void)
 {
     uint32_t i;
     char nb[NAME_LEN + 1u], f[NAME_LEN + 1u], row[NAME_LEN + 5u];
-    cv_tab(2, 2, "PROJECTS", C_INK, C_BG);
+    int kits=cur_page()->id[0]==G_KSLOT;
+    unsigned selected=(unsigned)(kits?song.act[G_KSLOT-G_COUNT]:song.g[G_SLOT])-1;
+    unsigned top=(selected/4)*4;
+    cv_tab(2, 2, kits?"KITS":"PROJECTS", C_INK, C_BG);
     for (i = 0; i < 4u; i++) {
-        int sel = (int32_t)i + 1 == song.g[G_SLOT], used = project_name(i, nb);
+        unsigned slot=top+i;
+        int sel=slot==selected, used=kits?kit_name(slot,nb):project_name(slot,nb);
         md_fit(f, used ? (nb[0] ? nb : "USED") : "EMPTY", sizeof f, 180);
-        row[0] = (char)('A' + i);
+        row[0] = (char)('A' + top+i);
         row[1] = ' ';
         row[2] = ' ';
         str_cpy(row + 3, f, sizeof row - 3);
@@ -1751,8 +1755,12 @@ static uint32_t graph_signature(void)
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
     if (pg->graph == GR_SLOTS) {
         char nb[NAME_LEN + 1u];
+        int kits=pg->id[0]==G_KSLOT;
+        unsigned selected=(unsigned)(kits?song.act[G_KSLOT-G_COUNT]:song.g[G_SLOT])-1;
+        unsigned top=(selected/4)*4;
+        h ^= selected*997u;
         for (i = 0; i < 4u; i++) {
-            h ^= (uint32_t)project_name(i, nb) << (20u + i);
+            h ^= (uint32_t)(kits?kit_name(top+i,nb):project_name(top+i,nb)) << (20u + i);
             h = str_hash(h, nb);
         }
         h = str_hash(h, chain.name);
@@ -1997,7 +2005,7 @@ static void graph_song(void)
              sig = 2166136261u, last, nw, wi;
     char b[16], nm[NAME_LEN + 1u];
     for (i = 0; i < c->count; i++)
-        sig = (sig ^ (c->row[i].slot | (uint32_t)c->row[i].repeat << 2)) * 16777619u;
+        sig = (sig ^ (c->row[i].slot | (uint32_t)c->row[i].repeat << 3)) * 16777619u;
     for (i = 0; i < 4u; i++) {
         project_name(i, nm);
         sig = str_hash(sig, nm) + (uint32_t)project_used(i) * (i + 3u);
@@ -2066,7 +2074,7 @@ static void song_columns(void)
         draw_column(0, "ROW", v, u, HOT(0u), -1);
         v[0] = (char)('A' + c->row[r].slot);
         v[1] = 0;
-        draw_column(1, "SLOT", v, "", HOT(1u), c->row[r].slot * 1000 / 3);
+        draw_column(1, "SLOT", v, "", HOT(1u), c->row[r].slot * 1000 / (full_user.get?7:3));
         v[0] = 'x';
         fmt_int(v + 1, c->row[r].repeat);
         draw_column(2, "REPS", v, "", HOT(2u), (c->row[r].repeat - 1) * 1000 / 15);
@@ -2606,7 +2614,7 @@ static void draw_home_strip(void)
         fmt_int(m + 5, (int32_t)chain.row + 1);
     }
     pj[0] = 'P', pj[1] = 'R', pj[2] = 'O', pj[3] = 'J', pj[4] = ' ';
-    pj[5] = (char)('A' + (uint32_t)(song.g[G_SLOT] > 0 ? song.g[G_SLOT] - 1 : 0) % 4u);
+    pj[5] = (char)('A' + (uint32_t)(song.g[G_SLOT] > 0 ? song.g[G_SLOT] - 1 : 0) % 8u);
     pj[6] = 0;
     md_fit(nm, chain.name[0] ? chain.name : "NEW", sizeof nm, 54);
     lx1 = m[0] ? 4 + md_text_w(&MD_F3, 2, m) : 0;
@@ -2834,7 +2842,7 @@ __attribute__((always_inline)) static inline void ui_draw(void)
                 str_cpy(b, "CLEAR ALL LEARNED?", sizeof b);
             } else if (ui.confirm == 5u) {              /* the power-on load failed (project.c project_boot) */
                 str_cpy(b, "LOAD FAILED: SLOT A", sizeof b);
-                b[18] = (char)('A' + ui.confirm_trk % 4u);
+                b[18] = (char)('A' + ui.confirm_trk % 8u);
             } else {
                 b[12] = (char)('1' + ui.confirm_trk);
             }

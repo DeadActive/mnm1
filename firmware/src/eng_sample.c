@@ -53,6 +53,7 @@ typedef struct {
 } smp_user_hdr_t;                                   /* 32 + 16 x 28 = 480 B, data at +512 */
 static smp_zone_t usr_zone[SMP_USER_SLOTS][16];     /* RAM copy, off rebased onto SMP_DATA */
 static uint8_t usr_nz[SMP_USER_SLOTS];
+static uint8_t smp_user_reserved;                 /* expanded library owns USR2/USR3 */
 static const char *const SMP_ALL_NAMES[SMP_NALL] = {SMP_SET_NAMES_INIT, "USR1", "USR2", "USR3"};
 
 #ifndef SMP_USER_XIP                                /* host tests: a RAM image of the slots */
@@ -76,6 +77,7 @@ __attribute__((noinline)) static void smp_user_scan(uint32_t k)
     smp_user_gen++;
     usr_nz[k] = 0;
     slc_user_scan(k, 0);
+    if (k && smp_user_reserved) return;
     if (h->magic != SMP_USER_MAGIC || h->version != 1 || !h->nz || h->nz > 16u ||
         h->data_len > SMP_USER_SIZE - SMP_USER_DATA)
         return;

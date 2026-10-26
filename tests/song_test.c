@@ -313,7 +313,7 @@ static void test_song_valid(void)
     c.row[0] = (chain_row_t){3, 16};
     c.row[1] = (chain_row_t){0, 1};
     check("chain_valid: slots A..D, repeats 1..16", chain_valid(&c));
-    c.row[1].slot = 4;
+    c.row[1].slot = 8;
     check("chain_valid: slot past D refused", !chain_valid(&c));
     c.row[1] = (chain_row_t){0, 0};
     check("chain_valid: repeat 0 refused", !chain_valid(&c));

@@ -5,6 +5,14 @@ own history is in its repository.
 
 ## Unreleased
 
+## 0.8.0 - 2026-10-26
+
+- Add eight patterns, eight independent kits and 128 full user sounds, including calibrated parameters. Keep legacy storage until an explicit migration.
+- Add KIT save/load/name controls and pattern slots E–H within the existing interface. Preserve kit names when saving patterns; restore the last saved slot after restart.
+- Cache all eight SONG source patterns before playback; row changes perform no flash reads. Refuse kits exceeding existing model limits before changing the live sound.
+- Expose explicit `library migrate-waived` in the USB console. It replaces sample slots 2 and 3, preserves slot 1 and the old project/user records, and never runs automatically at boot.
+- Verify migration, atomic writes, interrupted transactions, full-sound audition rollback, kit/pattern UI and read failures with host sanitizers. Device timing and listening checks remain pending.
+
 ## 0.7.0 - 2026-10-26
 
 - Add 19 separately selectable calibrated machines from MONO2K, preserving legacy model IDs and algorithms.

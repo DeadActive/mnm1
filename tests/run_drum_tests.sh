@@ -76,7 +76,7 @@ for test in project_migration fullpreset busfx_integration calibrated_mix live_c
 done
 cc -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all tests/mm_store_test.c -o "$OUT/mm_store_test"
 # Full record conversion and transactional library migration, through the host UI/core.
-for test in mm_records mm_library; do
+for test in mm_records mm_library mm_storage_ui; do
     cc -O1 -g -Wall -Werror -Wno-unused-function -Wno-unused-variable -Wno-int-to-pointer-cast -Wno-macro-redefined -Wno-misleading-indentation -fsanitize=address,undefined -fno-sanitize-recover=all -Ibuild/gen -Ifirmware/src "tests/${test}_test.c" -o "$OUT/${test}_test" -lm
     "$OUT/${test}_test"
 done

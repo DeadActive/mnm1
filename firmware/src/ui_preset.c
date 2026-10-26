@@ -86,6 +86,7 @@ static void pl_audition(uint32_t hit, uint32_t key)
         ui_message(!preset_get(ui.pr.cur, &p) ? "EMPTY SLOT" : model_refused(t, p.model));
         return;
     }
+    if (preset_prepare(ui.pr.cur)) {ui_message("READ ERROR");return;}
     fm1_irq_off();
     if (!ui.pr.pv) {
         ui.pr.pv = 1;
@@ -219,7 +220,8 @@ static void pl_load(void)
     if (ui.pr.pv && ui.pr.pv_trk != song.sel)
         pl_restore();
     if (preset_load(TSEL, ui.pr.cur) < 0) {
-        ui_message(!preset_get(ui.pr.cur, &p) ? "EMPTY SLOT" : model_refused(TSEL, p.model));
+        const char *why=!preset_get(ui.pr.cur,&p)?"EMPTY SLOT":model_refused(TSEL,p.model);
+        ui_message(why?why:"READ ERROR");
         return;
     }
     ui.pr.pv = 0;
@@ -234,14 +236,14 @@ static void pl_save(void)
 {
     uint32_t slot;
     char nb[9];
-    if (preset_calibrated(ui.pr.pv ? ui.pr.sv_model : (uint32_t)TSEL->p[P_MODEL])) {
+    if (!full_user.get && preset_calibrated(ui.pr.pv ? ui.pr.sv_model : (uint32_t)TSEL->p[P_MODEL])) {
         ui.pr.arm = 0;
         ui_message("FULL SOUND STORE NEEDED");
         return;
     }
     if (preset_bank_of(ui.pr.cur) == PB_USER) {
         slot = ui.pr.cur - PRE_NFACT;
-        if (upr.s[slot].used == 1u && !pl_armed(1u)) {
+        if (preset_get(PRE_NFACT+slot,&(preset_t){0}) && !pl_armed(1u)) {
             pl_arm(1u);
             return;
         }
@@ -278,7 +280,7 @@ static void pl_delete(void)
         ui_message("ONLY USER PRESETS");
         return;
     }
-    if (upr.s[slot].used != 1u) {
+    if (!preset_get(PRE_NFACT+slot,&(preset_t){0})) {
         ui.pr.arm = 0;
         ui_message("EMPTY SLOT");
         return;
@@ -426,13 +428,15 @@ static void draw_plist(void)
     uint32_t i, top, bank = preset_bank_of(ui.pr.cur) % PB_N, sig, used, own = pl_own();
     int32_t x;
     top = (uint32_t)clamp((int32_t)ui.pr.cur - 3, 0, (int32_t)(PRE_NID - PL_ROWS));
-    used = bank == PB_USER && upr.s[ui.pr.cur - PRE_NFACT].used == 1u;
+    used = bank == PB_USER && preset_get(ui.pr.cur,&(preset_t){0});
     sig = 37199u + ui.pr.cur * 31u + song.sel * 7919u + own * 131u + ui.pr.arm * 104729u + used * 3u +
           (ui.msg_t ? str_hash(5u, ui.msg) : 0u);
     for (i = 0; i < PL_ROWS; i++) {
-        const upr_slot_t *u = &upr.s[(top + i - PRE_NFACT) % PRE_NUSER];
-        if (top + i >= PRE_NFACT)
-            sig = (sig ^ (u->used | (uint32_t)u->model << 8)) * 16777619u;
+        preset_t p;
+        if (top + i >= PRE_NFACT) {
+            int present=preset_get(top+i,&p);
+            sig = (sig ^ (present | (present?(uint32_t)p.model<<8:0))) * 16777619u;
+        }
     }
     if (ui.msg_t)                                      /* the title shows a message for a while */
         ui.msg_t--;

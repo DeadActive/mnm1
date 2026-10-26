@@ -101,7 +101,7 @@ enum {                          /* global parameters */
     G_COUNT
 };
 enum { CG_MUTE, CG_KEEP, CG_HIDE };                 /* GHOST: muted = muted; muted still keys; never heard, keys */
-enum { G_CLRALL = G_COUNT, G_INITALL, G_MUTEBAR, G_METRO };   /* TOOLS actions, the MUTE and METRO settings: shown
+enum { G_CLRALL = G_COUNT, G_INITALL, G_MUTEBAR, G_METRO, G_KSLOT, G_KNAME, G_KLOAD, G_KSAVE, G_ACT_END };   /* TOOLS actions, the MUTE and METRO settings: shown
                                                      * like globals, not stored in projects */
 
 /* ----------------------------------------------------------- voices --- */
@@ -226,7 +226,7 @@ typedef struct {
     uint32_t sheds;              /* overload sheds (audio.c shed_voice): the top bar's CPU icon (ui_draw.c) */
     uint32_t master_q12;
     int32_t batt_raw;            /* smoothed ADC ch3 (battery divider), 0 = not read yet */
-    int16_t act[4];              /* TOOLS action knobs CLR* INIT* (G_CLRALL ..): GO buttons, never stored; MUTE: a
+    int16_t act[G_ACT_END-G_COUNT]; /* TOOLS/KIT action knobs, never stored; MUTE: a
                                   * copy of settings.mutebar; METRO: of fx_metro */
     uint8_t mute_q;              /* mutes to flip on the next bar (bit per track; seq.c) */
     uint8_t solo;                /* SOLO (the SMC-Mixer): bit per track, runtime only (trk_silent) */

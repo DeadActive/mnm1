@@ -4,7 +4,7 @@
 #include "../firmware/src/mm_library.h"
 #include <assert.h>
 static uint8_t libflash[MMS_END-MMS_BASE],empty_flash[sizeof libflash],ready_flash[sizeof libflash];
-static unsigned writes,reads,fail_write,fail_read;
+static unsigned writes,reads,fail_write,fail_read,fail_after;
 static track_t live_before[NTRK];
 static song_t song_before;
 static motion_store_t motion_before;
@@ -19,16 +19,19 @@ static int lib_read(void *ctx,uint32_t off,void *dst,uint32_t n)
 }
 static int lib_erase(void *ctx,uint32_t off)
 {
-    (void)ctx;flash_bounds(off,MMS_SECTOR);assert(!(off%MMS_SECTOR));if(++writes==fail_write)return -1;
-    memset(libflash+(off-MMS_BASE),255,MMS_SECTOR);return 0;
+    (void)ctx;flash_bounds(off,MMS_SECTOR);assert(!(off%MMS_SECTOR));
+    int failed=++writes==fail_write;if(failed&&!fail_after)return -1;
+    memset(libflash+(off-MMS_BASE),255,MMS_SECTOR);return failed?-1:0;
 }
 static int lib_program(void *ctx,uint32_t off,const void *src,uint32_t n)
 {
-    (void)ctx;flash_bounds(off,n);assert(n<=256&&(off%256)+n<=256);if(++writes==fail_write)return -1;
-    for(unsigned i=0;i<n;++i){uint8_t *p=&libflash[off-MMS_BASE+i],v=((const uint8_t *)src)[i];assert((*p&v)==v);*p&=v;}return 0;
+    (void)ctx;flash_bounds(off,n);assert(n<=256&&(off%256)+n<=256);
+    int failed=++writes==fail_write;if(failed&&!fail_after)return -1;
+    for(unsigned i=0;i<n;++i){uint8_t *p=&libflash[off-MMS_BASE+i],v=((const uint8_t *)src)[i];assert((*p&v)==v);*p&=v;}
+    return failed?-1:0;
 }
 static mms_io libio={0,lib_read,lib_program,lib_erase};
-static void io_reset(void){writes=reads=fail_write=fail_read=0;}
+static void io_reset(void){writes=reads=fail_write=fail_read=fail_after=0;}
 static void live_snapshot(void)
 {
     memcpy(live_before,trk,sizeof trk);song_before=song;motion_before=mo.s;chain_before=chain.cfg;
@@ -83,6 +86,11 @@ static void boot_format_migrate(void)
     memcpy(ready_flash,libflash,sizeof libflash);
     io_reset();assert(library_boot(libio)==0);assert(!writes);
     for(unsigned slot=0;slot<4;++slot){
+        const mmlib_pattern_meta *pm=library_pattern_metadata(slot);
+        const mmlib_kit_meta *km=library_kit_metadata(slot);
+        assert(pm&&pm->used&&pm->kit==slot&&km&&km->used);
+        assert(!memcmp(pm->name,projects_before[slot].name,NAME_LEN));
+        assert(!strcmp(pm->name,km->name));
         assert(library_load_pattern(slot)==0);const project_t *p=&projects_before[slot];
         assert(song.sel==p->sel&&!memcmp(song.g,p->g,sizeof song.g));
         for(unsigned k=0;k<NTRK;++k){
@@ -110,6 +118,10 @@ static void saves_and_groups(void)
     assert(library_load_kit(7)==0&&trk[0].p[P_PAN]==31);
     assert(library_load_kit(6)==0&&trk[0].p[P_PAN]==-31);
     trk[0].p[P_E0]=9;assert(library_save_pattern(7,7)==0);
+    assert(library_pattern_metadata(7)->used&&library_pattern_metadata(7)->kit==7);
+    assert(!strcmp(library_pattern_metadata(7)->name,"NEWKIT"));
+    assert(library_kit_metadata(6)->used&&library_kit_metadata(7)->used);
+    assert(!strcmp(library_kit_metadata(6)->name,"NEWKIT"));
     trk[0].p[P_E0]=1;assert(library_load_pattern(7)==0&&trk[0].p[P_E0]==9);
     trk[0].p[P_PAN]=-64;assert(library_save_sound(127,&trk[0],"LAST")==0);
     assert(!strcmp(library_sound_metadata(127)->name,"LAST"));
@@ -165,6 +177,76 @@ static void pattern_save_cuts(void)
     assert(library_boot(libio)==MMS_CORRUPT&&!library_ready());live_unchanged();
     printf("  atomic pattern+kit failure/reboot/retry at all %u boundaries\n",total);
 }
+static void metadata_and_renames(void)
+{
+    static mmr_pattern_t original_pattern,changed_pattern;
+    static mmr_kits_t original_kits,changed_kits;
+    memcpy(libflash,ready_flash,sizeof libflash);io_reset();assert(library_boot(libio)==0);
+    unsigned before_reads=reads,before_writes=writes;
+    fail_read=reads+1;
+    for(unsigned slot=0;slot<8;++slot){
+        const mmlib_pattern_meta *pm=library_pattern_metadata(slot);
+        const mmlib_kit_meta *km=library_kit_metadata(slot);
+        assert(pm&&km&&pm->used==(slot<4)&&km->used==(slot<4));
+        assert(!pm->name[NAME_LEN]&&!km->name[NAME_LEN]);
+    }
+    assert(!library_pattern_metadata(8)&&!library_kit_metadata(8));
+    assert(reads==before_reads&&writes==before_writes);fail_read=0;
+    assert(mmlib_read(0,&original_pattern,sizeof original_pattern)==0);
+    assert(mmlib_read(8,&original_kits,sizeof original_kits)==0);
+    live_snapshot();char live_name[NAME_LEN+1];memcpy(live_name,chain.name,sizeof live_name);
+    assert(library_rename_pattern(0,"123456789012TOOLONG")==0);
+    assert(!strcmp(library_pattern_metadata(0)->name,"123456789012"));
+    assert(library_pattern_metadata(0)->kit==0);
+    assert(mmlib_read(0,&changed_pattern,sizeof changed_pattern)==0);
+    memcpy(changed_pattern.name,original_pattern.name,NAME_LEN);
+    assert(!memcmp(&changed_pattern,&original_pattern,sizeof original_pattern));
+    assert(library_rename_kit(0,"A\nB")==0);
+    assert(!strcmp(library_kit_metadata(0)->name,"A B"));
+    assert(!strcmp(library_kit_metadata(1)->name,"LEGACY2"));
+    assert(mmlib_read(8,&changed_kits,sizeof changed_kits)==0);
+    memcpy(changed_kits.kit[0].name,original_kits.kit[0].name,NAME_LEN+1);
+    assert(!memcmp(&changed_kits,&original_kits,sizeof original_kits));
+    live_unchanged();assert(!memcmp(live_name,chain.name,sizeof live_name));
+    io_reset();assert(library_boot(libio)==0);
+    assert(!strcmp(library_pattern_metadata(0)->name,"123456789012"));
+    assert(!strcmp(library_kit_metadata(0)->name,"A B"));
+    before_writes=writes;
+    assert(library_rename_pattern(8,"BAD")==MMS_INVALID);
+    assert(library_rename_kit(8,"BAD")==MMS_INVALID);
+    assert(library_rename_pattern(0,0)==MMS_INVALID&&library_rename_kit(0,0)==MMS_INVALID);
+    assert(library_rename_pattern(7,"EMPTY")==MMS_NOT_FOUND);
+    assert(library_rename_kit(7,"EMPTY")==MMLIB_EMPTY);assert(writes==before_writes);
+    assert(library_rename_pattern(0,"")==0);assert(library_pattern_metadata(0)->used&&!library_pattern_metadata(0)->name[0]);
+    assert(library_rename_kit(0,"")==0);assert(library_kit_metadata(0)->used&&!library_kit_metadata(0)->name[0]);
+    /* Cut every erase/program boundary, including completed-but-reported-failed
+     * catalogue writes. Cached committed metadata must never publish early. */
+    for(unsigned kind=0;kind<2;++kind){
+        memcpy(libflash,ready_flash,sizeof libflash);io_reset();assert(library_boot(libio)==0);
+        writes=0;assert((kind?library_rename_kit(0,"RENAMED"):library_rename_pattern(0,"RENAMED"))==0);
+        unsigned total=writes;
+        for(unsigned after=0;after<2;++after)for(unsigned cut=1;cut<=total;++cut){
+            memcpy(libflash,ready_flash,sizeof libflash);io_reset();assert(library_boot(libio)==0);
+            mmlib_pattern_meta old_pattern=mmlib_patterns[0];
+            mmlib_kit_meta old_kit=mmlib_kit_names[0],neighbor=mmlib_kit_names[1];
+            live_snapshot();writes=0;fail_write=cut;fail_after=after;
+            assert((kind?library_rename_kit(0,"RENAMED"):library_rename_pattern(0,"RENAMED"))!=0);
+            assert(!memcmp(&old_pattern,&mmlib_patterns[0],sizeof old_pattern));
+            assert(!memcmp(&old_kit,&mmlib_kit_names[0],sizeof old_kit));
+            assert(!memcmp(&neighbor,&mmlib_kit_names[1],sizeof neighbor));live_unchanged();
+            if(!library_ready())assert(!library_pattern_metadata(0)&&!library_kit_metadata(0));
+            io_reset();assert(library_boot(libio)==0);
+            const char *name=kind?library_kit_metadata(0)->name:library_pattern_metadata(0)->name;
+            assert(!strcmp(name,after&&cut==total?"RENAMED":"LEGACY1"));
+            assert(!strcmp(library_kit_metadata(1)->name,"LEGACY2"));
+            assert(library_pattern_metadata(0)->kit==0);
+            assert((kind?library_rename_kit(0,"RETRIED"):library_rename_pattern(0,"RETRIED"))==0);
+            io_reset();assert(library_boot(libio)==0);
+            assert(!strcmp(kind?library_kit_metadata(0)->name:library_pattern_metadata(0)->name,"RETRIED"));
+        }
+        printf("  %s rename: %u boundaries x before/after failure + reboot/retry\n",kind?"kit":"pattern",total);
+    }
+}
 static void migration_cuts(void)
 {
     memcpy(libflash,empty_flash,sizeof libflash);io_reset();assert(library_boot(libio)==MMLIB_NOT_READY);
@@ -183,10 +265,11 @@ static void migration_cuts(void)
     live_snapshot();assert(library_migrate_legacy()==0);live_unchanged();
     assert(library_load_pattern(0)==MMS_NOT_FOUND&&library_load_kit(0)==MMLIB_EMPTY);
     for(unsigned i=0;i<128;++i)assert(!library_sound_metadata(i)->used);
+    for(unsigned i=0;i<8;++i)assert(!library_pattern_metadata(i)->used&&!library_kit_metadata(i)->used);
 }
 int main(void)
 {
-    legacy_fixture();boot_format_migrate();saves_and_groups();failed_loads();pattern_save_cuts();migration_cuts();
-    printf("library: migration/full records/group preservation/read failures/bounds passed; scratch=%zu metadata=%zu\n",sizeof mmlib_work+sizeof mmlib_kits,sizeof mmlib_sounds);
+    legacy_fixture();boot_format_migrate();saves_and_groups();failed_loads();pattern_save_cuts();metadata_and_renames();migration_cuts();
+    printf("library: migration/full records/group preservation/read failures/bounds passed; scratch=%zu metadata=%zu\n",sizeof mmlib_work+sizeof mmlib_kits,sizeof mmlib_sounds+sizeof mmlib_patterns+sizeof mmlib_kit_names);
     return 0;
 }

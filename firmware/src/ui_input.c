@@ -404,7 +404,7 @@ static void song_edit(uint32_t slot, int32_t steps)
         return;
     }
     if (slot == 1u)
-        c->row[r].slot = (uint8_t)clamp((int32_t)c->row[r].slot + steps, 0, 3);
+        c->row[r].slot = (uint8_t)clamp((int32_t)c->row[r].slot + steps, 0, full_user.get?7:3);
     else
         c->row[r].repeat = (uint8_t)clamp((int32_t)c->row[r].repeat + steps, 1, 16);
 }
@@ -468,9 +468,11 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
     if (pg->graph == GR_STEPS && song_lock())         /* PATTERN: a song's row */
         return;
-    if (pg->graph == GR_SLOTS && id == G_NAME) {      /* PROJECT, NAME: rename the selected slot */
-        if (steps > 0)
-            name_rename();
+    if (pg->graph == GR_SLOTS && (id == G_NAME || id == G_KNAME)) {
+        if (steps > 0) {
+            if (id == G_KNAME) name_kit_rename();
+            else name_rename();
+        }
         return;
     }
     d = page_desc(pg, slot, &vp);
@@ -504,7 +506,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         *vp = 0;
         return;
     }
-    if ((id == G_LOAD || id == G_SAVE || id == G_CLRSEQ || id == G_INITSND || id == G_CLRALL || id == G_INITALL) &&
+    if ((id == G_LOAD || id == G_SAVE || id == G_KLOAD || id == G_KSAVE || id == G_CLRSEQ || id == G_INITSND || id == G_CLRALL || id == G_INITALL) &&
         ui.arm != id) {
         *vp = 0;                                      /* one detent arms, a second one within ~1.5 s acts */
         ui.arm = (uint8_t)id;
@@ -521,6 +523,14 @@ static void edit_param(uint32_t slot, int32_t steps)
     case G_SAVE:                                      /* (with the current name; NAME renames: ui_name.c) */
         *vp = 0;
         project_save((uint32_t)song.g[G_SLOT] - 1u);
+        break;
+    case G_KLOAD:
+        *vp = 0;
+        kit_load((uint32_t)song.act[G_KSLOT - G_COUNT] - 1u);
+        break;
+    case G_KSAVE:
+        *vp = 0;
+        kit_save((uint32_t)song.act[G_KSLOT - G_COUNT] - 1u);
         break;
     case G_CLRSEQ:
         *vp = 0;

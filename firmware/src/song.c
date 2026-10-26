@@ -13,7 +13,7 @@
  * while it is off (chain_busy). */
 #define CHAIN_ROWS 16u
 #define NAME_LEN 12u
-typedef struct { uint8_t slot, repeat; } chain_row_t;                 /* slot 0..3 (A..D), repeat 1..16 */
+typedef struct { uint8_t slot, repeat; } chain_row_t;                 /* slot 0..7 (A..H), repeat 1..16 */
 typedef struct { uint8_t count, loop, rsv[2]; chain_row_t row[CHAIN_ROWS]; } chain_config_t;   /* saved (FDR9) */
 typedef char chain_config_size[sizeof(chain_config_t) == 36u ? 1 : -1];
 typedef struct {                           /* a slot as its rows play it */
@@ -29,7 +29,7 @@ static struct {
     chain_config_t cfg;                    /* the song (the project's) */
     char name[NAME_LEN + 1u];              /* the project's name, "" = none */
     uint8_t from;                          /* the slot loaded or saved last + 1, 0 = none (its rename renames this) */
-    chain_src_t src[4];                    /* the slots (chain_prepare) */
+    chain_src_t src[8];                    /* the slots (chain_prepare) */
     int16_t keep[NTRK][4];                 /* the timing before the song (STOP puts it back) */
     volatile uint8_t armed, running;       /* PLAY on SONG: armed until seq_start takes it; running */
     uint8_t row, left, ref, slot;          /* the row playing, its repeats left (this one too), its longest track, slot */
@@ -43,7 +43,7 @@ static int chain_valid(const chain_config_t *c)
     if (c->count > CHAIN_ROWS || c->loop > 1u)
         return 0;
     for (i = 0; i < c->count; i++)
-        if (c->row[i].slot > 3u || !c->row[i].repeat || c->row[i].repeat > 16u)
+        if (c->row[i].slot > 7u || !c->row[i].repeat || c->row[i].repeat > 16u)
             return 0;
     return 1;
 }

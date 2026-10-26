@@ -286,7 +286,7 @@ static void con_bench_out(const char *s)            /* BENCH lines (bench.c), al
 static void con_exec(const char *p)
 {
     if (con_word(&p, "help") || con_word(&p, "?")) {
-        con_puts("status  dbg  crash  params  memr ADDR [LEN]  flr OFF [LEN]  bench yes  uboot yes\r\n");
+        con_puts("status  dbg  crash  params  memr ADDR [LEN]  flr OFF [LEN]  bench yes  library  uboot yes\r\n");
 #if FELUCCA_BLE
         con_puts("ble [start | scan | list | connect N | stop]: Bluetooth status and tests "
                  "(the page: MENU > BLUETOOTH)\r\n");
@@ -312,6 +312,15 @@ static void con_exec(const char *p)
     else if (con_word(&p, "memr"))
         con_memr(p);
 #if FELUCCA_FLASH
+    else if (con_word(&p, "library")) {
+        if(con_word(&p,"migrate-waived")) {
+            int rc=safe_start?MMS_INVALID:expanded_migrate(MMS_OWNER_WAIVER);
+            con_puts("library migrate result=0x");con_hex((uint32_t)rc,8);con_puts("\r\n");
+        } else {
+            con_puts(library_ready()?"library ready: 8 patterns, 8 kits, 128 sounds\r\n":
+                     "library unavailable; migrate-waived replaces sample slots 2 and 3\r\n");
+        }
+    }
     else if (con_word(&p, "flr"))
         con_flr(p);
 #endif

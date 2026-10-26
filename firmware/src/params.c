@@ -11,7 +11,7 @@ static const char *const N_CLOCK[] = {"INT", "USB", "TRS",   /* G_CLOCK: = the i
 };
 static const char *const N_NOTE[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 static const char *const N_DASH[] = {"--"};
-static const char *const N_SLOT[] = {"-", "A", "B", "C", "D"};   /* G_SLOT 1..4: the project slots A..D */
+static const char *const N_SLOT[] = {"-", "A", "B", "C", "D", "E", "F", "G", "H"};
 static const char *const N_GO[] = {"--", "GO"};
 static const char *const N_SLCR[] = {"OFF", "GATE", "STUT"};             /* SL_OFF .. SL_STUT (slicer.c) */
 static const char *const N_SLDIV[] = {"1/8", "1/16", "1/32", "8T", "16T", "32T"};   /* SL_DEN */
@@ -126,7 +126,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_SYNC] = PE("SYNC", N_DASH, 0),
     [G_ROUTE] = PE("ROUT", N_DASH, 0),
     [G_INFO] = PD("CPU", F_INT, 0, 0, 0),
-    [G_SLOT] = {"SLOT", F_ENUM, 1, 4, 1, N_SLOT, 0},
+    [G_SLOT] = {"SLOT", F_ENUM, 1, 8, 1, N_SLOT, 0},
     [G_NAME] = PE("NAME", N_DASH, 0),
     [G_LOAD] = PE("LOAD", N_GO, 0),
     [G_SAVE] = PE("SAVE", N_GO, 0),
@@ -162,8 +162,8 @@ static const param_desc_t GP[G_COUNT] = {
  * device settings settings.mutebar, fx_metro); their knob values are song.act, not song.g / projects */
 static const char *const N_MUTEBAR[] = {"NOW", "BAR"};
 static const char *const N_METRO[] = {"OFF", "LOW", "MID", "HIGH"};
-static const param_desc_t GP_ACT[4] = {PE("CLR*", N_GO, 0), PE("INIT*", N_GO, 0), PE("MUTE", N_MUTEBAR, 0),
-                                       PE("METRO", N_METRO, 0)};
+static const param_desc_t GP_ACT[G_ACT_END-G_COUNT] = {PE("CLR*", N_GO, 0), PE("INIT*", N_GO, 0), PE("MUTE", N_MUTEBAR, 0),
+    PE("METRO", N_METRO, 0), {"KIT",F_ENUM,1,8,1,N_SLOT,0},PE("NAME",N_DASH,0),PE("LOAD",N_GO,0),PE("SAVE",N_GO,0)};
 
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {

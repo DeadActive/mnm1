@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Drum machine fork: 2026 DEADACTIVE (projects only, the fork's keys and screen) */
-/* NAME (upstream Felucca 1.0's ui_name.c, adapted; included by ui_input.c): naming a project on the device.
+/* NAME (upstream Felucca 1.0's ui_name.c, adapted; included by ui_input.c): naming a project or kit on the device.
  * PROJECT's NAME knob opens it for the selected used slot, prefilled with its name ("PROJECT A" when it has none);
  * SAVE never asks (it keeps the current name). OCT+ writes the name only (the transport stopped: else STOP TO SAVE
  * and the screen stays; the slot loaded or saved last: the current name too), OCT- or HOME cancels. The keys type and never sound, record, send MIDI or play
@@ -13,7 +13,7 @@
  *                            D# ABC / 123.
  *   KNOB 1 the cursor; KNOB 2 the character at the cursor (NAME_SET; at the end: a new one).
  *   LEDs: every key that types or edits lit; the key being cycled blinks. Spaces at the ends are dropped. */
-enum { NK_NONE, NK_RENAME };
+enum { NK_NONE, NK_RENAME, NK_KIT_RENAME };
 #define NM_TAP_MS 800u
 #define NM_REP_MS 450u
 #define NM_RATE_MS 90u
@@ -65,13 +65,16 @@ static void name_open(uint32_t kind, uint32_t slot)
 {
     char b[NAME_LEN + 1u];
     nm.kind = (uint8_t)kind;
-    nm.slot = (uint8_t)(slot & 3u);
+    nm.slot = (uint8_t)(slot & 7u);
     nm.num = nm.key = nm.rep = 0;
     nm.sig = 0;
-    project_name(slot, b);
+    if (kind == NK_KIT_RENAME)
+        kit_name(slot, b);
+    else
+        project_name(slot, b);
     if (!b[0]) {
-        name_set(b, "PROJECT A");
-        b[8] = (char)('A' + (slot & 3u));
+        name_set(b, kind == NK_KIT_RENAME ? "KIT A" : "PROJECT A");
+        b[str_len(b) - 1u] = (char)('A' + (slot & 7u));
     }
     name_set(nm.s, b);
     nm.len = nm.cur = (uint8_t)str_len(nm.s);
@@ -88,6 +91,18 @@ static void name_rename(void)                      /* PROJECT, the NAME knob */
         ui_message("STOP TO SAVE");
     else
         name_open(NK_RENAME, k);
+}
+
+static void name_kit_rename(void)                  /* KIT, the NAME knob */
+{
+    uint32_t k = (uint32_t)song.act[G_KSLOT - G_COUNT] - 1u;
+    char b[NAME_LEN + 1u];
+    if (!kit_name(k, b))
+        ui_message("EMPTY SLOT");
+    else if (transport_busy())
+        ui_message("STOP TO SAVE");
+    else
+        name_open(NK_KIT_RENAME, k);
 }
 
 static void nm_commit(void)                        /* the letter being cycled is kept: the cursor past it */
@@ -193,7 +208,10 @@ static void name_ok(void)                          /* OCT+: written (ends trimme
         ui_message("STOP TO SAVE");
         return;
     }
-    project_rename(nm.slot, b);
+    if (nm.kind == NK_KIT_RENAME)
+        kit_rename(nm.slot, b);
+    else
+        project_rename(nm.slot, b);
     name_close();
 }
 /* one UI frame of NAME (ui_input.c): button edges, note edges, the HOME button's tap / hold */
@@ -264,7 +282,7 @@ static void draw_name(void)
         return;
     nm.sig = sig;
     ui.force = 0;
-    str_cpy(b, "NAME PROJECT A", sizeof b);        /* the title bar: an ink bar, the title and n/12 in BG */
+    str_cpy(b, nm.kind == NK_KIT_RENAME ? "NAME KIT A" : "NAME PROJECT A", sizeof b);        /* the title bar: an ink bar, the title and n/12 in BG */
     b[str_len(b) - 1u] = (char)('A' + nm.slot);
     cv_begin(240, 16, C_INK);
     md_text(6, 3, &MD_F3, 2, ui.msg_t ? ui.msg : b, C_BG);

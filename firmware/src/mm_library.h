@@ -11,10 +11,14 @@
 #include "mm_records.h"
 enum { MMLIB_NOT_READY=-20, MMLIB_EXISTS=-21, MMLIB_EMPTY=-22 };
 typedef struct {uint8_t used,model;char name[9];} mmlib_sound_meta;
+typedef struct {uint8_t used,kit;char name[NAME_LEN+1];} mmlib_pattern_meta;
+typedef struct {uint8_t used;char name[NAME_LEN+1];} mmlib_kit_meta;
 static mms_store mmlib_store;
 static uint8_t mmlib_ready, mmlib_prepared;
 static unsigned mmlib_pattern_slot, mmlib_kit_slot;
 static mmlib_sound_meta mmlib_sounds[MMR_SOUNDS];
+static mmlib_pattern_meta mmlib_patterns[MMR_PATTERNS];
+static mmlib_kit_meta mmlib_kit_names[MMR_KITS];
 /* Shared scratch: non-reentrant, about 5 KiB, never a 14 KiB sound cache. */
 static union {mmr_pattern_t pattern;mmr_sounds_t sounds;} mmlib_work;
 static mmr_kits_t mmlib_kits;
@@ -48,36 +52,68 @@ static void mmlib_metadata(unsigned group)
         if(s->used){m->used=1;m->model=s->p[P_MODEL];memcpy(m->name,s->name,sizeof m->name);}
     }
 }
+static void mmlib_pattern_metadata(unsigned slot)
+{
+    const mmr_pattern_t *p=&mmlib_work.pattern;
+    mmlib_pattern_meta *m=&mmlib_patterns[slot];
+    memset(m,0,sizeof *m);m->used=p->used;m->kit=p->kit;
+    proj_name_get(m->name,p->name);
+}
+static void mmlib_kit_metadata(unsigned group)
+{
+    for(unsigned i=0;i<MMR_KITS_PER_OBJECT;++i){
+        const mmr_kit_t *k=&mmlib_kits.kit[i];
+        mmlib_kit_meta *m=&mmlib_kit_names[group*MMR_KITS_PER_OBJECT+i];
+        memset(m,0,sizeof *m);
+        if(k->used){m->used=1;memcpy(m->name,k->name,sizeof m->name);}
+    }
+}
+static void mmlib_clear_metadata(void)
+{
+    memset(mmlib_sounds,0,sizeof mmlib_sounds);
+    memset(mmlib_patterns,0,sizeof mmlib_patterns);
+    memset(mmlib_kit_names,0,sizeof mmlib_kit_names);
+}
 /* Read-only boot. Presence of all eight group objects is the completion marker:
  * migration publishes them together, and normal saves never remove objects. */
 static int library_boot(mms_io io)
 {
-    mmlib_ready=mmlib_prepared=0;memset(mmlib_sounds,0,sizeof mmlib_sounds);
+    mmlib_ready=mmlib_prepared=0;mmlib_clear_metadata();
     int rc=mms_init(&mmlib_store,io);if(rc)return rc;
     rc=mms_load(&mmlib_store);if(rc)return rc;
     for(unsigned id=8;id<16;++id)if(!mmlib_store.committed.ref[id].present)return MMLIB_NOT_READY;
     uint8_t kits_used[8];
     for(unsigned group=0;group<4;++group){
-        rc=mmlib_read_kits(group);if(rc)return rc;
+        rc=mmlib_read_kits(group);if(rc)return rc;mmlib_kit_metadata(group);
         for(unsigned i=0;i<2;++i)kits_used[group*2+i]=mmlib_kits.kit[i].used;
         rc=mmlib_read_sounds(group);if(rc)return rc;mmlib_metadata(group);
     }
     for(unsigned id=0;id<8;++id)if(mmlib_store.committed.ref[id].present){
         rc=mmlib_read(id,&mmlib_work.pattern,sizeof mmlib_work.pattern);if(rc)return rc;
         if(!mmr_pattern_valid(&mmlib_work.pattern)||!kits_used[mmlib_work.pattern.kit])return MMS_CORRUPT;
+        mmlib_pattern_metadata(id);
     }
     mmlib_ready=1;return 0;
 }
 static int library_format_authorized(mms_io io,int authorization)
 {
     if(authorization!=MMS_VERIFIED_BACKUP && authorization!=MMS_OWNER_WAIVER)return MMS_APPROVAL_REQUIRED;
-    mmlib_ready=mmlib_prepared=0;memset(mmlib_sounds,0,sizeof mmlib_sounds);
+    mmlib_ready=mmlib_prepared=0;mmlib_clear_metadata();
     int rc=mms_init(&mmlib_store,io);if(rc)return rc;
     return mms_format(&mmlib_store,authorization); /* still NOT_READY until migration */
 }
 static const mmlib_sound_meta *library_sound_metadata(unsigned slot)
 {
     return library_ready()&&slot<MMR_SOUNDS?&mmlib_sounds[slot]:0;
+}
+/* Cached menu queries: no flash access, no shared scratch invalidation. */
+static const mmlib_pattern_meta *library_pattern_metadata(unsigned slot)
+{
+    return library_ready()&&slot<MMR_PATTERNS?&mmlib_patterns[slot]:0;
+}
+static const mmlib_kit_meta *library_kit_metadata(unsigned slot)
+{
+    return library_ready()&&slot<MMR_KITS?&mmlib_kit_names[slot]:0;
 }
 static int mmlib_commit(void)
 {
@@ -89,13 +125,47 @@ static int library_save_pattern(unsigned slot,unsigned kit)
     if(slot>=8||kit>=8)return MMS_INVALID;
     if(!library_ready())return MMLIB_NOT_READY;
     int rc=mmlib_read_kits(kit/2);if(rc)return rc;
-    if(!mmr_kit_capture(&mmlib_kits.kit[kit%2],trk,chain.name)||
+    char kit_name[NAME_LEN+1];name_set(kit_name,mmlib_kits.kit[kit%2].used?mmlib_kits.kit[kit%2].name:chain.name);
+    if(!mmr_kit_capture(&mmlib_kits.kit[kit%2],trk,kit_name)||
        !mmr_pattern_capture(&mmlib_work.pattern,trk,song.g,&mo.s,&chain.cfg,song.sel,kit,chain.name))return MMS_INVALID;
     mms_abort(&mmlib_store);
     rc=mms_stage(&mmlib_store,8+kit/2,&mmlib_kits,sizeof mmlib_kits);
     if(!rc)rc=mms_stage(&mmlib_store,slot,&mmlib_work.pattern,sizeof mmlib_work.pattern);
     if(rc){mms_abort(&mmlib_store);return mmlib_error(rc);}
-    rc=mmlib_commit();if(!rc){mmlib_pattern_slot=slot;mmlib_kit_slot=kit;}return rc;
+    rc=mmlib_commit();
+    if(!rc){mmlib_pattern_slot=slot;mmlib_kit_slot=kit;mmlib_pattern_metadata(slot);mmlib_kit_metadata(kit/2);}
+    return rc;
+}
+/* Rename stored data only. The UI may update its live title after success;
+ * failures preserve the current title and all cached committed metadata. */
+static int library_rename_pattern(unsigned slot,const char *name)
+{
+    mmlib_prepared=0;
+    if(slot>=MMR_PATTERNS||!name)return MMS_INVALID;
+    if(!library_ready())return MMLIB_NOT_READY;
+    int rc=mmlib_read(slot,&mmlib_work.pattern,sizeof mmlib_work.pattern);if(rc)return rc;
+    if(!mmr_pattern_valid(&mmlib_work.pattern))return MMS_CORRUPT;
+    char normalized[NAME_LEN+1];mmr_name_copy(normalized,sizeof normalized,name);
+    memcpy(mmlib_work.pattern.name,normalized,NAME_LEN);
+    mms_abort(&mmlib_store);
+    rc=mms_stage(&mmlib_store,slot,&mmlib_work.pattern,sizeof mmlib_work.pattern);
+    if(!rc)rc=mmlib_commit();
+    if(!rc)mmlib_pattern_metadata(slot);
+    return rc?mmlib_error(rc):0;
+}
+static int library_rename_kit(unsigned slot,const char *name)
+{
+    mmlib_prepared=0;
+    if(slot>=MMR_KITS||!name)return MMS_INVALID;
+    if(!library_ready())return MMLIB_NOT_READY;
+    int rc=mmlib_read_kits(slot/2);if(rc)return rc;
+    if(!mmlib_kits.kit[slot%2].used)return MMLIB_EMPTY;
+    mmr_name_copy(mmlib_kits.kit[slot%2].name,NAME_LEN+1,name);
+    mms_abort(&mmlib_store);
+    rc=mms_stage(&mmlib_store,8+slot/2,&mmlib_kits,sizeof mmlib_kits);
+    if(!rc)rc=mmlib_commit();
+    if(!rc)mmlib_kit_metadata(slot/2);
+    return rc?mmlib_error(rc):0;
 }
 static int library_prepare_pattern(unsigned slot)
 {
@@ -131,9 +201,12 @@ static int library_save_kit(unsigned slot)
 {
     mmlib_prepared=0;if(slot>=8)return MMS_INVALID;if(!library_ready())return MMLIB_NOT_READY;
     int rc=mmlib_read_kits(slot/2);if(rc)return rc;
-    if(!mmr_kit_capture(&mmlib_kits.kit[slot%2],trk,chain.name))return MMS_INVALID;
+    char kit_name[NAME_LEN+1];name_set(kit_name,mmlib_kits.kit[slot%2].used?mmlib_kits.kit[slot%2].name:chain.name);
+    if(!mmr_kit_capture(&mmlib_kits.kit[slot%2],trk,kit_name))return MMS_INVALID;
     mms_abort(&mmlib_store);rc=mms_stage(&mmlib_store,8+slot/2,&mmlib_kits,sizeof mmlib_kits);
-    return rc?mmlib_error(rc):mmlib_commit();
+    if(!rc)rc=mmlib_commit();
+    if(!rc)mmlib_kit_metadata(slot/2);
+    return rc?mmlib_error(rc):0;
 }
 static int library_prepare_kit(unsigned slot)
 {

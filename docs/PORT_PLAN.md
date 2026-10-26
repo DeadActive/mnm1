@@ -105,3 +105,22 @@ device timing, stack watermark, reset/update and listening checks.
 Stereo delay uses the existing 16 KiB per-track allocation: its normal full-bandwidth interval is shorter
 than the donor's mono mode. Existing stutter capture remains mono. These are limits of this integration,
 not evidence of differences in the reference instrument.
+
+## Expanded library integration (0.8 candidate)
+
+The eight-pattern/eight-kit/128-sound library is connected to the existing controls. KIT adds
+slot/name/load/save; PROJECT shows A–H in two groups of four. Saves require stopped transport.
+A pattern save commits its selected kit and pattern together while retaining the kit's name.
+SONG caches referenced steps/motion before PLAY, reusing the legacy RAM slots for six patterns
+and 5000 bytes for the remaining two. The old flash records remain available for migration.
+
+USB console `library` reports readiness; `library migrate-waived` performs the owner's authorized
+migration without asserting that a backup exists. Boot never formats or migrates automatically.
+Sample slots 2 and 3 are disabled before their payload can be replaced. Slot 1 is preserved.
+
+The target build measured image 538588 bytes, data/BSS 95328 of 98304 bytes and pool 333220
+of 344064 bytes before the final name-preservation change. The full host suite passed, as did
+ASan/UBSan tests for KIT H, patterns E–H, last-slot reboot, model-limit refusal, read failures,
+and cached SONG transitions with zero flash reads. Screen layout was inspected. Final candidate
+build and device timing/listening are separate checks; the remaining sequencer/performance
+roadmap is not complete.

@@ -9,6 +9,15 @@
 #define PROJ_V3_MAGIC 0x334D4E4Du              /* "MNM3" */
 #define PROJ_V3_PARAMS 80u
 #define PROJ_V3_GLOBALS 41u
+static int expanded_pattern_name(uint32_t slot,char *b);
+static void expanded_pattern_save(uint32_t slot);
+static uint32_t expanded_chain_prepare(void);
+static int expanded_pattern_load(uint32_t slot,int irq);
+static void expanded_pattern_rename(uint32_t slot,const char *name);
+static void expanded_boot(void);
+static void expanded_reset(void);
+static int expanded_save_sound(uint32_t slot,const track_t *t);
+static int expanded_delete_sound(uint32_t slot);
 typedef struct {
     int16_t p[P_NSTORED];                       /* the block; P_NSTORED + j: step[j].rsv (proj_xp_*) */
     step_t step[NSTEP];
@@ -55,7 +64,14 @@ typedef struct {
 _Static_assert(sizeof(mnm_project_v3_t) == 3624u, "MNM3 layout changed");
 _Static_assert(P_NSTORED >= PROJ_V3_PARAMS, "MNM4 parameter block shrank");
 typedef char project_size[sizeof(project_t) <= 3840u ? 1 : -1];   /* (MNM-1: 6 tracks, room left) */
-project_t proj_slot[4] __attribute__((section(".noinit")));
+typedef struct {step_t step[NTRK][NSTEP];motion_store_t motion;} expanded_chain_slot_t;
+static union {
+    project_t projects[4];
+    expanded_chain_slot_t chain[6];
+} proj_memory __attribute__((section(".noinit")));
+_Static_assert(sizeof proj_memory==4*sizeof(project_t), "chain cache exceeds old project RAM");
+#define proj_slot proj_memory.projects
+static expanded_chain_slot_t expanded_chain_extra[2];
 
 static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
 {
@@ -131,6 +147,8 @@ static void proj_name_get(char *d, const char *s)
 
 static void project_save(uint32_t slot)
 {
+    if(full_user.get){expanded_pattern_save(slot);return;}
+    if(slot>=4){ui_message("EMPTY SLOT");return;}
     if (transport_busy()) {                            /* (upstream 1.0) only while stopped */
         ui_message("STOP TO SAVE");
         return;
@@ -185,6 +203,8 @@ static uint32_t preset_ref(uint32_t id, uint32_t m)
  * power-on one (drum_boot_init: before audio_init and fm1_irq_enable_all, so no fm1_irq_on; no EMPTY SLOT message) */
 static int proj_load(uint32_t slot, int irq)
 {
+    if(full_user.get)return expanded_pattern_load(slot,irq);
+    if(slot>=4)return 0;
     project_t *p = &proj_slot[slot & 3u];
     uint32_t i, k;
     if (chain_busy()) {                                 /* a song reads the slots */
@@ -406,6 +426,7 @@ static int preset_user_save(uint32_t slot, const track_t *t)
     uint32_t k = (uint32_t)(t - trk);
     if (slot >= PRE_NUSER)
         return -1;
+    if (full_user.get) return expanded_save_sound(slot,t);
     if (t->p[P_MODEL] >= MM_MODEL_FIRST) {
         ui_message("FULL SOUND STORE NEEDED");
         return -1;
@@ -416,6 +437,7 @@ static int preset_user_save(uint32_t slot, const track_t *t)
 }
 static void preset_user_delete(uint32_t slot)       /* user slot emptied (tracks loaded from it keep their knobs) */
 {
+    if (full_user.get) {(void)expanded_delete_sound(slot);return;}
     if (slot >= PRE_NUSER || upr.s[slot].used != 1u)
         return;
     memset(&upr.s[slot], 0, sizeof upr.s[slot]);
@@ -478,6 +500,7 @@ static void persist_boot(void)                    /* before settings_init / pane
     memset(ml_map, 0, sizeof ml_map);                 /* MIDI LEARN: nothing learned, as well */
     memset(&upr, 0, sizeof upr);                      /* no user preset, as well (presets.c) */
     upr_pending = 0;
+    expanded_reset();
 #if FELUCCA_FLASH
     persist_t p;
     uint32_t f = irq_save();
@@ -486,16 +509,12 @@ static void persist_boot(void)                    /* before settings_init / pane
     if (!flash_ok)
         return;
     fl_plain_window_init();
-    {
-        uint32_t k;
-        for (k = 0; k < SMP_USER_SLOTS; k++)
-            smp_user_scan(k);
-    }
     if (st_load(OBJ_SETTINGS, &p, sizeof p) == (int)sizeof p && p.magic == PERSIST_MAGIC) {
         settings.magic = SETTINGS_MAGIC;
         settings.palette = p.palette & 0xFFu;       /* bits 0..7 the palette; bit 8 AUTOSTART (BLE: bt_page.c) */
         btset.bt_auto = (p.palette >> 8) & 1u;
         lc_unpack(p.lowcut);
+        lastp.slot |= (uint8_t)(((p.palette >> 12) & 1u) << 2);
         if (((p.palette >> 9) & 7u) - 1u < BL_COUNT - 1u && backlight)   /* BACKLIGHT's level, bits 9..11 (item 9; 0:
                                                      * an older record, its ON = DIM LO) */
             backlight = (p.palette >> 9) & 7u;
@@ -522,14 +541,18 @@ static void persist_boot(void)                    /* before settings_init / pane
             if (!proj_ok(&proj_slot[i]))
                 proj_fetch(i);
     }
+    expanded_boot();
+    for (uint32_t k=0;k<SMP_USER_SLOTS;k++) smp_user_scan(k);
 #endif
 }
 
-static int project_used(uint32_t slot) { return proj_ok(&proj_slot[slot & 3u]); }
+static int project_used(uint32_t slot) { char b[NAME_LEN+1];return full_user.get?expanded_pattern_name(slot,b):(slot<4&&proj_ok(&proj_slot[slot])); }
 static int project_name(uint32_t slot, char *b)   /* slot's name -> b (NAME_LEN + 1, "" none); 0 = an empty slot */
 {
-    const project_t *p = &proj_slot[slot & 3u];
+    if(full_user.get)return expanded_pattern_name(slot,b);
     name_set(b, "");
+    if(slot>=4)return 0;
+    const project_t *p = &proj_slot[slot];
     if (!proj_ok(p))
         return 0;
     proj_name_get(b, p->name);
@@ -537,7 +560,9 @@ static int project_name(uint32_t slot, char *b)   /* slot's name -> b (NAME_LEN 
 }
 static void project_rename(uint32_t slot, const char *name)   /* only the name; the current one too if it is that slot */
 {
-    project_t *p = &proj_slot[slot & 3u];
+    if(full_user.get){expanded_pattern_rename(slot,name);return;}
+    if(slot>=4){ui_message("EMPTY SLOT");return;}
+    project_t *p = &proj_slot[slot];
     char n[NAME_LEN + 1u];
     if (transport_busy()) {
         ui_message("STOP TO SAVE");
@@ -565,6 +590,7 @@ static void project_rename(uint32_t slot, const char *name)   /* only the name; 
  * inside the ranges, a broken motion plays none */
 static uint32_t chain_prepare(void)
 {
+    if(full_user.get)return expanded_chain_prepare();
     uint32_t i, k, j, used = 0;
     if (transport_busy() || chain_busy())
         return 2;
@@ -610,7 +636,7 @@ static void settings_save(void)                    /* asked for while playing: w
         return;
     memset(&p, 0, sizeof p);
     p.magic = PERSIST_MAGIC;
-    p.palette = (settings.palette & 0xFFu) | (btset.bt_auto & 1u) << 8 | (backlight & 7u) << 9;   /* an older
+    p.palette = (settings.palette & 0xFFu) | (btset.bt_auto & 1u) << 8 | (backlight & 7u) << 9 | (uint32_t)(lastp.slot & 4u) << 10;   /* an older
                                                      * Hortator reads a palette out of range from bit 8: its display
                                                      * settings reset; 9..11 BACKLIGHT's level (item 9: an older one reads
                                                      * lowcut's bit 7, ON) */
@@ -637,3 +663,4 @@ static void settings_poll(void)                    /* every UI frame: a settings
 #if FELUCCA_FLASH
 _Static_assert(sizeof(project_t) <= ST_PAYLOAD_MAX, "project does not fit one flash sector");
 #endif
+#include "mm_storage_ui.h"

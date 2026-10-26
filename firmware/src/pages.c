@@ -66,6 +66,7 @@ static const page_t PAGES[] = {
     {"DESTROY", FAM_FX, SC_TRACK, GR_NONE, {P_BITS, P_FOLD, P_XOR, P_SPU}},
     {"MOD FX", FAM_FX, SC_TRACK, GR_NONE, {P_MODT, P_MODR, P_MODD, P_MODM}},
     {"LOFI", FAM_FX, SC_GLOBAL, GR_NONE, {G_TAPE, G_ADPC, G_HISS, G_DRIVE}},
+    {"KIT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, {G_KSLOT,G_KNAME,G_KLOAD,G_KSAVE}},
     /* HOME's TRACKS mode (spec §3: a HOME tap on HOME; no button of its own): TRACK LEVEL LEN PAN */
     {"TRACKS", FAM_MIX, SC_MIX, GR_MIX, {0xFF, 0xFF, 0xFF, 0xFF}},
 };
@@ -129,7 +130,7 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     if (id == 0xFFu || pg->scope == SC_GRID || pg->scope == SC_MIX)
         return 0;
     if (pg->scope == SC_GLOBAL && id >= G_COUNT) {   /* TOOLS actions, MUTE, METRO */
-        id = id - G_COUNT < 4u ? id - G_COUNT : 0u;
+        id = id < G_ACT_END ? id - G_COUNT : 0u;
         *valp = &song.act[id];
         return &GP_ACT[id];
     }

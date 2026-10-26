@@ -357,6 +357,7 @@ static void drum_tracks_init(void)
     uint32_t i, k;
     for (i = 0; i < G_COUNT; i++)
         song.g[i] = GP[i].def;
+    song.act[G_KSLOT-G_COUNT]=1;
     for (k = 0; k < NTRK; k++) {
         track_t *t = &trk[k];
         memset(t, 0, sizeof *t);

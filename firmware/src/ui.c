@@ -14,6 +14,10 @@ static int project_used(uint32_t slot);
 static uint32_t chain_prepare(void);
 static int project_name(uint32_t slot, char *b);
 static void project_rename(uint32_t slot, const char *name);
+static int kit_name(uint32_t slot,char *b);
+static void kit_load(uint32_t slot);
+static void kit_save(uint32_t slot);
+static void kit_rename(uint32_t slot,const char *name);
 static int transport_busy(void);
 static int name_on(void);                  /* ui_name.c (NAME) */
 static void draw_name(void);

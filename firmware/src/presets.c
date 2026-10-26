@@ -26,6 +26,16 @@ typedef char pre_id_fits[PRE_NID < PRE_NONE ? 1 : -1];
 #define UPR_MAGIC 0x31525055u                           /* "UPR1" */
 static upr_rec_t upr;
 static uint8_t upr_pending;                             /* changed while playing: written at the next STOP */
+/* Late-bound by project storage; DSP-only hosts retain the legacy user bank. */
+static struct {
+    int (*get)(uint32_t, preset_t *);
+    int (*prepare)(uint32_t);
+    void (*apply)(track_t *);
+} full_user;
+static int preset_prepare(uint32_t id)
+{
+    return id>=PRE_NFACT && full_user.prepare ? full_user.prepare(id-PRE_NFACT) : 0;
+}
 
 static void mmen_legacy_defaults(track_t *t);            /* params.c */
 static int preset_calibrated(uint32_t model)
@@ -64,6 +74,7 @@ static int preset_get(uint32_t id, preset_t *out)
     }
     if (id >= PRE_NID)
         return 0;
+    if (full_user.get) return full_user.get(id-PRE_NFACT,out);
     s = &upr.s[id - PRE_NFACT];
     if (s->used != 1u || s->model >= NMODELS)
         return 0;
@@ -159,6 +170,11 @@ static int preset_ok(const track_t *t, uint32_t id, preset_t *p)
  * machine cuts the old voice; same-machine loads preserve the running voice. */
 static void preset_apply(track_t *t, const preset_t *p, uint32_t id)
 {
+    if (id>=PRE_NFACT && full_user.apply) {
+        full_user.apply(t);
+        t->pre=(uint16_t)id;t->pre_ed=0;
+        return;
+    }
     const dmodel_t *m = &DMODELS[p->model % NMODELS];
     uint32_t i;
     if ((uint32_t)t->p[P_MODEL] != p->model || t->model != p->model) {
@@ -190,6 +206,7 @@ static int preset_load(track_t *t, uint32_t id)
     preset_t p;
     if (!preset_ok(t, id, &p))
         return -1;
+    if (preset_prepare(id)) return -1;
     fm1_irq_off();
     preset_apply(t, &p, id);
     motion_rebase((uint32_t)(t - trk));
@@ -264,7 +281,7 @@ static int preset_user_free(void)                      /* the first free user sl
 {
     uint32_t i;
     for (i = 0; i < PRE_NUSER; i++)
-        if (upr.s[i].used != 1u)
+        if (full_user.get ? !full_user.get(i,&(preset_t){0}) : upr.s[i].used != 1u)
             return (int)i;
     return -1;
 }
