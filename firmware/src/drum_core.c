@@ -199,20 +199,34 @@ static int trk_silent(const track_t *t)
 static void arp_note(track_t *t, int glide);             /* arp.c */
 
 /* one hit of track t at velocity vel (1..127), playing note nt (an offset from C4) */
-static void drum_play(track_t *t, uint32_t vel, int32_t nt)
+static void drum_play_masked(track_t *t, uint32_t vel, int32_t nt,unsigned flags)
 {
     const dmodel_t *m = trk_model(t);
     uint32_t i, nv = m->voices < NDV ? m->voices : NDV;
     dvoice_t *v;
-    t->nt = (int8_t)clamp(nt, NT_MIN, NT_MAX);
+    if(flags&ST_NOTEOFF){
+        t->rat_n=0;t->slide_in=0;t->gate_n=0;
+        if(m->gate&&t->v[0].active)m->gate(t,&t->v[0],0);
+        return;
+    }
+    t->nt=(flags&ST_NOPITCH)?t->trig_nt:(int8_t)clamp(nt,NT_MIN,NT_MAX);
+    t->trig_nt=t->nt;
     if (safe_start)
         return;
-    arp_note(t, 0);                                     /* ARP: a note of its own starts a run */
-    lfo_hit(t);                                     /* HIT LFOs restart, the trigger reads their values */
+    if(!(flags&ST_NOAMP))arp_note(t, 0);                                     /* ARP: a note of its own starts a run */
+    if(!(flags&ST_NOLFO))lfo_hit(t);                                     /* HIT LFOs restart, the trigger reads their values */
     if (trk_silent(t) && (uint32_t)(t - trk) != comp_ghost_src())   /* a muted COMP source still plays (GHOST KEEP /
                                                                       * HIDE, fx.c) */
         return;
-    trk_filter_hit(t, vel);                             /* FILTER: the hit's sweep (filter.c) */
+    if(!(flags&ST_NOFLT))trk_filter_hit(t, vel);                             /* FILTER: the hit's sweep (filter.c) */
+    if(flags&ST_NOAMP){
+        if(mmen_is_model(t->model))mmen_trigger_mask(t,&t->v[0],vel,flags);
+        else if(!(flags&ST_NOPITCH)&&m->glide&&t->v[0].active){
+            uint32_t age=t->v[0].t;
+            m->glide(t,&t->v[0]);t->v[0].t=age;
+        }
+        return;
+    }
     if (m->fx && !t->p[P_FXG])
         return;                                         /* an FX machine at GATE ON: always passing, its notes its
                                                          * filter's sweep and its pitch only (mm_fx.c) */
@@ -224,9 +238,11 @@ static void drum_play(track_t *t, uint32_t vel, int32_t nt)
     if ((uint32_t)t->p[P_MODEL] % NMODELS != DM_SMPL || smpl_playable(t)) {   /* nothing to play: no voice */
         v = dv_alloc(t, t->v, nv, m->weight ? m->weight : 1u);
         dv_init(v, vel);
-        m->trigger(t, v);
+        if(flags&&mmen_is_model(t->model))mmen_trigger_mask(t,v,vel,flags);
+        else m->trigger(t, v);
     }
 }
+static void drum_play(track_t *t,uint32_t vel,int32_t nt){drum_play_masked(t,vel,nt,0);}
 
 static uint32_t hit_gate_len(const track_t *t);          /* seq.c */
 
@@ -301,6 +317,7 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
             m->render(t, &t->v[i], out, n);
             nr++;
         }
+    if(!nr&&mmen_is_model(t->model))mmen_idle_filter(t,n);
     if (t->dtail) {
         for (i = 0; i < n && t->dtail; i++) {
             int32_t d = t->dtail >> 4;

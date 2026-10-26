@@ -154,8 +154,9 @@ typedef struct {                 /* one sequencer step (4 B, stored as is); all 
     uint8_t : 1;
     uint8_t cond;                /* PROB: 0 = 100 %, 1..20 = 0..95 %, 21 = 1-SHOT, 22..56 = A/B (params.c cond_*) */
     int8_t nt;                   /* NOTE - 60 (C4 = 0): a drum's transpose, ACID's note (NT_MIN..NT_MAX) */
-    uint8_t rsv;                 /* 0 */
+    uint8_t rsv;                 /* ST_* event flags; zero preserves legacy ALL */
 } step_t;
+enum {ST_NOAMP=1,ST_NOFLT=2,ST_NOLFO=4,ST_NOPITCH=8,ST_NOTEOFF=16,ST_MASK=31};
 #define NT_MIN (-60)
 #define NT_MAX 67
 #define GATE_HELD 0xFFFFFFFFu     /* track_t.gate_n: the gate stays open, the next step decides (seq.c acid_step) */
@@ -174,6 +175,7 @@ typedef struct track {
     int8_t nt;                   /* the playing note's offset from C4 (the step's, 0 for MIDI, keys): models read TUNE through dm_tune */
     uint32_t gate_n;             /* ACID: samples until its gate closes, GATE_HELD while the next step decides, 0 closed */
     uint8_t slide_in;            /* ACID: the previous step slides into this one */
+    int8_t trig_nt;             /* last sounding note, also when ARP restores its parent note */
     int8_t rat_nt;               /* RATCH: the roll's note (a live hit between its hits leaves it) */
     int8_t key_nt;               /* the note KEYS played or recorded last on this track (0 = C4): a new step's (§2) */
     uint32_t seq_pos;            /* samples into the current step */
@@ -184,7 +186,7 @@ typedef struct track {
     uint8_t rskip, rskip_idx;    /* live recording put a hit into the step about to play: skip it once */
     uint32_t rng;                /* PROB: the track's random sequence (LCG), seeded at PLAY */
     uint32_t rat_len;            /* RATCH: the playing roll's step length (samples) */
-    uint8_t rat_n, rat_k, rat_vel;   /* its hits, the next hit, their velocity; rat_n 0 = no roll */
+    uint8_t rat_n, rat_k, rat_vel, rat_flags;   /* its hits, the next hit, their velocity; rat_n 0 = no roll */
     uint16_t gfade;              /* M3 ghost key: how silenced the COMP source's sound is (0 heard .. 32767 muted) */
     lfo_state_t lfo[NLFO];       /* LFO 1 / 2 / 3 runtime (lfo.c) */
     int16_t lpit;                /* the LFOs' PTCH this block, 1/16 semitone (mm_synth.c mm_pitch adds it) */

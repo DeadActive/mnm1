@@ -77,6 +77,7 @@ static void acid_trigger(track_t *t, dvoice_t *v)
 
 static void acid_glide(track_t *t, dvoice_t *v)          /* slide: a new target, nothing restarts */
 {
+    t->trig_nt=t->nt;
     const int16_t *p = &t->p[P_E0];
     v->x[1] = acid_pitch(t);
     v->t = 0;                                            /* a new note: its lifetime starts */

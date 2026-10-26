@@ -70,7 +70,7 @@ for test in delay_port controls_port engine_port lfo_port lfo_integration; do
     cc -O2 -Wall -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=all "tests/${test}_test.c" -o "$OUT/${test}_test" -lm
     "$OUT/${test}_test"
 done
-for test in project_migration fullpreset busfx_integration calibrated_mix live_calibrated format_port; do
+for test in project_migration fullpreset busfx_integration calibrated_mix live_calibrated format_port trig_lanes; do
     cc -O1 -g -fsanitize=address,undefined -fno-sanitize=shift-base -fno-sanitize-recover=all -Wno-int-to-pointer-cast -Wno-macro-redefined -Ibuild/gen -Ifirmware/src "tests/${test}_test.c" -o "$OUT/${test}_test" -lm
     "$OUT/${test}_test"
 done
@@ -82,7 +82,7 @@ for test in mm_records mm_library mm_storage_ui; do
 done
 "$OUT/mm_store_test"
 if [ -f ../mono2k/firmware/src/m2k_core.c ]; then
-    for test in machines_port adapter busfx_port; do
+    for test in machines_port adapter adapter_trig busfx_port; do
         cc -O2 -Wno-unused-function -DMM2_MUL_OUT -fsanitize=address,undefined -fno-sanitize-recover=all -I../mono2k/firmware/src -I../mono2k/firmware/gen "tests/${test}_test.c" -o "$OUT/${test}_test" -lm
         "$OUT/${test}_test"
     done

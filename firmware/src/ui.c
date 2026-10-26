@@ -61,6 +61,7 @@ static struct {
     uint8_t hmode;               /* HOME's mode last shown: 0 TRACKS (the TRACKS page), 1 HOME (the HOME screen, COMP) */
     uint8_t page;                /* index into PAGES */
     uint8_t fam_last[FAM_COUNT]; /* last page used per family */
+    uint8_t lane;                /* STEP: ALL, AMP, FILTER, LFO */
     uint8_t bank;                /* STEP grid: 16-step bank shown on the keys */
     uint8_t hot_col, hot_t;      /* column whose knob was just turned (drawn white) */
     uint8_t menu;                /* 0 off, 1 list, 2 about (HOME held), 3 Bluetooth (BLE build: bt_page.c) */
@@ -160,6 +161,12 @@ static int song_lock(void)                          /* a song plays (or is armed
     return 1;
 }
 
+static const char *const STEP_LANES[]={"ALL","AMP","FILTER","LFO"};
+static const uint8_t STEP_TYPES[]={0,14,13,11,7,16,8,15};
+static const char *const STEP_TYPE_NAMES[]={"ALL","AMP","FILTER","LFO","TRIGLESS","NOTE OFF","PITCHLESS","LOCKS"};
+static unsigned step_type(unsigned flags){for(unsigned i=0;i<8;i++)if(STEP_TYPES[i]==flags)return i;return 8;}
+static int step_lane_on(step_t s){return s.on&&(!ui.lane||(!(s.rsv&ST_NOTEOFF)&&!(s.rsv&(1u<<(ui.lane-1)))));}
+static uint8_t step_lane_flags(void){return ui.lane?(uint8_t)((7u&~(1u<<(ui.lane-1)))|ST_NOPITCH):0;}
 static int grid_mode(void) { return !ui.home && !ui.menu && cur_page()->scope == SC_GRID; }
 static int mix_mode(void) { return !ui.home && !ui.menu && cur_page()->scope == SC_MIX; }   /* HOME's TRACKS mode */
 static int comp_mode(void) { return !ui.home && !ui.menu && cur_page()->graph == GR_COMP; }   /* COMP: keys DUCK */
@@ -427,6 +434,7 @@ static void step_hold_on(uint32_t k)
         return;
     s = &TSEL->step[ui.step_si[k]];
     if (!s->on) {
+        s->rsv=step_lane_flags();
         s->nt = new_step_nt(TSEL);                    /* spec §2: ACID's last played / recorded note, a drum's C4 */
         s->on = 1;
         s->acc = 0;
@@ -443,10 +451,17 @@ static void step_tap(uint32_t k)
     if (si >= (uint32_t)TSEL->p[P_SLEN] || view_src(TSEL) || chain_busy())
         return;
     s = &TSEL->step[si];
+    if(ui.lane){
+        unsigned bit=1u<<(ui.lane-1);
+        if(!s->on){memset(s,0,sizeof *s);s->on=1;s->rsv=step_lane_flags();}
+        else {s->rsv^=bit;s->rsv&=~ST_NOTEOFF;if((s->rsv&15)==15)s->on=0;}
+        return;
+    }
     if (s->on) {
         memset(s, 0, sizeof *s);
     } else {
         s->on = 1;
+        s->rsv=0;
         s->acc = 0;
         s->tie = 0;                                   /* a TIE step turned on plays (acid_step reads TIE first) */
         s->nt = new_step_nt(TSEL);                    /* spec §2: ACID's last played / recorded note, a drum's C4 */

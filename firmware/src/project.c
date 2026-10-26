@@ -5,7 +5,8 @@
  * parameters to MNM3; the flash reader validates and expands MNM3 in place. Older
  * formats are not compatible. Legacy .noinit slots use a different stride and are
  * deliberately ignored: flash is authoritative across this firmware upgrade. */
-#define PROJ_MAGIC 0x344D4E4Du                 /* "MNM4" */
+#define PROJ_MAGIC 0x354D4E4Du                 /* "MNM5": explicit step event flags */
+#define PROJ_V4_MAGIC 0x344D4E4Du
 #define PROJ_V3_MAGIC 0x334D4E4Du              /* "MNM3" */
 #define PROJ_V3_PARAMS 80u
 #define PROJ_V3_GLOBALS 41u
@@ -98,6 +99,10 @@ static int proj_decode(project_t *q, uint32_t n)
     uint32_t k, i;
     if (n == sizeof *q && proj_ok(q))
         return 1;
+    if(n==sizeof *q&&q->magic==PROJ_V4_MAGIC&&q->size==sizeof *q&&q->sum==proj_sum(q)){
+        for(k=0;k<NTRK;k++)for(i=0;i<NSTEP;i++)q->t[k].step[i].rsv=0;
+        q->magic=PROJ_MAGIC;q->sum=proj_sum(q);return 1;
+    }
     if (n != sizeof *old || old->magic != PROJ_V3_MAGIC || old->size != sizeof *old ||
         old->sum != proj_hash(old, sizeof *old - 4u))
         return 0;
@@ -112,6 +117,7 @@ static int proj_decode(project_t *q, uint32_t n)
     proj_expand_copy(&q->sel, &old->sel, 4u);
     for (i = PROJ_V3_GLOBALS; i < G_COUNT; i++)
         q->g[i] = GP[i].def;
+    for(k=0;k<NTRK;k++)for(i=0;i<NSTEP;i++)q->t[k].step[i].rsv=0;
     q->magic = PROJ_MAGIC;
     q->size = sizeof *q;
     q->sum = proj_sum(q);
@@ -253,8 +259,9 @@ static int proj_load(uint32_t slot, int irq)
             t->step[i].rat = (uint8_t)(q->rat < 3u ? q->rat : 3u);
             t->step[i].slide = q->slide;
             t->step[i].tie = q->tie;
+            t->step[i].pslide = q->pslide;
             t->step[i].nt = (int8_t)clamp(q->nt, NT_MIN, NT_MAX);
-            t->step[i].rsv = 0;
+            t->step[i].rsv = q->rsv&ST_MASK;
         }
     }
     for (k = 0, i = 0; k < NTRK; k++)                   /* ACID on 2 tracks at most: the first two keep it, the

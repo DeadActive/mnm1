@@ -8,6 +8,7 @@
 #ifndef MNM_RECORDS_H
 #define MNM_RECORDS_H
 #define MMR_VERSION 1u
+#define MMR_PATTERN_VERSION 2u
 #define MMR_PATTERNS 8u
 #define MMR_KITS 8u
 #define MMR_SOUNDS 128u
@@ -143,7 +144,7 @@ static int mmr_kit_apply(track_t *tracks,const mmr_kit_t *kit)
 }
 static int mmr_pattern_valid(const mmr_pattern_t *p)
 {
-    if(p->version!=MMR_VERSION||p->used!=1||p->kit>=MMR_KITS||p->selected>=NTRK||p->reserved||
+    if((p->version!=1&&p->version!=MMR_PATTERN_VERSION)||p->used!=1||p->kit>=MMR_KITS||p->selected>=NTRK||p->reserved||
        !mmr_name_valid(p->name,sizeof p->name)||!motion_valid(&p->motion)||!chain_valid(&p->song))return 0;
     for(unsigned i=0;i<G_COUNT;i++)if(p->g[i]<GP[i].min||p->g[i]>GP[i].max)return 0;
     for(unsigned k=0;k<NTRK;k++){
@@ -153,7 +154,8 @@ static int mmr_pattern_valid(const mmr_pattern_t *p)
         }
         for(unsigned i=0;i<NSTEP;i++){
             const step_t *s=&p->step[k][i];
-            if(s->cond>COND_MAX||s->nt<NT_MIN||s->nt>NT_MAX)return 0;
+            if(s->cond>COND_MAX||s->nt<NT_MIN||s->nt>NT_MAX||
+               (p->version>=2&&(s->rsv&~ST_MASK)))return 0;
         }
     }
     return 1;
@@ -162,7 +164,7 @@ static int mmr_pattern_capture(mmr_pattern_t *p,const track_t *tracks,const int1
                               const motion_store_t *motion,const chain_config_t *song_config,
                               unsigned selected,unsigned kit,const char *name)
 {
-    memset(p,0,sizeof *p);p->version=MMR_VERSION;p->used=1;
+    memset(p,0,sizeof *p);p->version=MMR_PATTERN_VERSION;p->used=1;
     if(selected>=NTRK||kit>=MMR_KITS){p->used=0;return 0;}
     p->selected=(uint8_t)selected;p->kit=(uint8_t)kit;
     /* Pattern names have the existing twelve-byte project representation. */
@@ -171,7 +173,6 @@ static int mmr_pattern_capture(mmr_pattern_t *p,const track_t *tracks,const int1
     for(unsigned k=0;k<NTRK;k++){
         for(unsigned j=0;j<MMR_PATTERN_N;j++)p->timing[k][j]=tracks[k].p[MMR_PATTERN_PARAMS[j]];
         memcpy(p->step[k],tracks[k].step,sizeof p->step[k]);
-        for(unsigned i=0;i<NSTEP;i++)p->step[k][i].rsv=0;
     }
     if(mmr_pattern_valid(p))return 1;p->used=0;return 0;
 }
@@ -183,6 +184,7 @@ static int mmr_pattern_apply(track_t *tracks,int16_t *globals,motion_store_t *mo
     for(unsigned k=0;k<NTRK;k++){
         for(unsigned j=0;j<MMR_PATTERN_N;j++)tracks[k].p[MMR_PATTERN_PARAMS[j]]=p->timing[k][j];
         memcpy(tracks[k].step,p->step[k],sizeof p->step[k]);
+        if(p->version==1)for(unsigned i=0;i<NSTEP;i++)tracks[k].step[i].rsv=0;
     }
     return 1; /* selected track and kit link are returned in the validated record */
 }

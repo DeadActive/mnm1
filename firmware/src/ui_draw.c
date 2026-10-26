@@ -426,7 +426,7 @@ static uint32_t steps_hash(const track_t *t)
     for (i = 0; i < n; i++) {
         step_t s = view_step(t, i);
         h = (h ^ (s.on + s.acc * 2u + s.cond * 4u + s.rat * 256u + s.slide * 1024u + s.tie * 2048u +
-                  (uint32_t)(uint8_t)s.nt * 4096u)) * 16777619u;
+                  (uint32_t)(uint8_t)s.nt * 4096u + (uint32_t)s.rsv * 1048576u)) * 16777619u;
     }
     return h ^ n * 7919u;
 }
@@ -792,6 +792,7 @@ static uint32_t held_text(char *h)
     str_cpy(h, "STEP ", 32);
     fmt_int(h + str_len(h), (int32_t)si + 1);
     str_cpy(h + str_len(h), "  ", 32 - str_len(h));
+    if(hs->rsv){unsigned type=step_type(hs->rsv);str_cpy(h+str_len(h),type<8?STEP_TYPE_NAMES[type]:"CUSTOM",32-str_len(h));return si;}
     cond_format(hs->cond, cs);
     str_cpy(h + str_len(h), cs, 32 - str_len(h));
     str_cpy(h + str_len(h), "  RATCH ", 32 - str_len(h));
@@ -824,6 +825,7 @@ static void graph_grid(const track_t *t, uint16_t c)
         uint32_t si = ui.bank * 16u + i;
         int32_t x = 4 + (int32_t)i * 14 + (int32_t)(i / 4u) * 2, y = 30;
         step_t sv = view_step(t, si);
+        sv.on=step_lane_on(sv);
         const step_t *st = &sv;
         if (si >= len) {                             /* past the length: a dotted line */
             cv_hdot(x, x + 10, y + 20, C_INK);
@@ -1751,6 +1753,7 @@ static uint32_t graph_signature(void)
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
     h ^= (uint32_t)song.g[G_SLOT] * 13u;
+    h ^= ui.lane*7919u;
     if (pg->graph == GR_SLCR && t->p[P_SLCR])
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
     if (pg->graph == GR_SLOTS) {
@@ -2117,7 +2120,7 @@ static uint32_t graph_paint(int whole)
         graph_steps(t, c);
         break;
     case GR_GRID:
-        if (trk_model(t)->gate && !view_src(t)) {
+        if (!ui.lane && trk_model(t)->gate && !view_src(t)) {
             if (whole)
                 roll_view(t);                         /* (the graph changed: the view chosen again) */
             graph_roll(t, c);
@@ -2756,7 +2759,8 @@ static void draw_columns(void)
         str_cpy(u, "/", 8);
         fmt_int(u + 1, (int32_t)bank_count());
         draw_column(0, "BANK", val, u, HOT(0u), -1);
-        for (c = 1; c < 4u; c++)
+        draw_column(1,"LANE",STEP_LANES[ui.lane],"",HOT(1u),-1);
+        for (c = 2; c < 4u; c++)
             draw_column(c, "", "", "", CV_NORM, -1);
         return;
     }

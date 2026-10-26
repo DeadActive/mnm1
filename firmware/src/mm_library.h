@@ -31,6 +31,13 @@ static int mmlib_error(int rc)
 static int mmlib_read(unsigned id,void *out,unsigned bytes)
 {
     int n=mms_read_object(&mmlib_store,id,out,bytes);
+    if(n==(int)bytes&&id<MMR_PATTERNS&&bytes==sizeof(mmr_pattern_t)){
+        mmr_pattern_t *p=out;
+        if(p->version==1){
+            for(unsigned k=0;k<NTRK;k++)for(unsigned i=0;i<NSTEP;i++)p->step[k][i].rsv=0;
+            p->version=MMR_PATTERN_VERSION;
+        }
+    }
     return n==(int)bytes?0:n<0?mmlib_error(n):MMS_CORRUPT;
 }
 static int mmlib_read_kits(unsigned group)
@@ -276,12 +283,11 @@ static int mmlib_project_kit(mmr_kit_t *kit,const project_t *p)
 }
 static int mmlib_project_pattern(mmr_pattern_t *out,const project_t *p,unsigned kit)
 {
-    memset(out,0,sizeof *out);out->version=MMR_VERSION;out->used=1;out->kit=(uint8_t)kit;out->selected=p->sel;
+    memset(out,0,sizeof *out);out->version=MMR_PATTERN_VERSION;out->used=1;out->kit=(uint8_t)kit;out->selected=p->sel;
     memcpy(out->name,p->name,sizeof out->name);memcpy(out->g,p->g,sizeof out->g);
     out->motion=p->motion;out->song=p->song;
     for(unsigned t=0;t<NTRK;++t){
         memcpy(out->step[t],p->t[t].step,sizeof out->step[t]);
-        for(unsigned i=0;i<NSTEP;++i)out->step[t][i].rsv=0;
         for(unsigned j=0;j<MMR_PATTERN_N;++j)out->timing[t][j]=p->t[t].p[MMR_PATTERN_PARAMS[j]];
     }
     return mmr_pattern_valid(out)?0:MMS_CORRUPT;

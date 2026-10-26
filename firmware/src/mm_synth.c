@@ -44,6 +44,7 @@ static void mm_glide(track_t *t, dvoice_t *v)            /* a slide or a legato 
 {
     mm_t *m = &v->ms.mm;
     m->tgt = mm_note16(t);
+    t->trig_nt=t->nt;
     m->gk = mm_glide_k(t->p[P_PORT]);
     v->t = 0;
     t->mm_p16 = m->tgt;

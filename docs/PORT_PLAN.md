@@ -124,3 +124,28 @@ ASan/UBSan tests for KIT H, patterns E–H, last-slot reboot, model-limit refusa
 and cached SONG transitions with zero flash reads. Screen layout was inspected. Final candidate
 build and device timing/listening are separate checks; the remaining sequencer/performance
 roadmap is not complete.
+
+## Trig lanes (0.9 candidate)
+
+STEP knob 2 chooses ALL, AMP, FILTER or LFO. Taps edit the selected lane. Hold a step
+and turn SELECT through ALL, AMP, FILTER, LFO, TRIGLESS, NOTE OFF, PITCHLESS and LOCKS.
+The four held-step knobs retain probability, ratchet, accent and parameter slide.
+Zero event flags preserve existing playback; typed events store their ratchet flags at
+step start so later edits do not change an already running roll.
+
+MNM5 retains the old project size but stores known event flags. MNM3/MNM4 readers clear
+historical spare bytes. Expanded patterns use version two; version-one reads normalize
+them to ALL before playback. Kit/sound versions are unchanged. Independent source
+NOAMP events preserve the current gate even during slides; this deliberately avoids
+the donor's slide shortcut reopening the gate. Pitchless events retain the actual last
+sounding note when an ARP has restored its parent note in the sequencer state.
+
+Focused source differential, DSP lane, UI and format-migration tests pass. The early
+native build used 541088 image bytes and 95328 data/BSS bytes. The final target
+build and full host regression passed. Timing/ARP extensions, performance assignment and expanded
+SONG rows remain outstanding. The 0.8 package is on the Mac with SHA-256
+`2c952b1fad5e664e1ebb9a3e71eef74eff8a43d54c3890640ec1f3ae98827398`;
+0.8 was installed from the Mac. Its console confirms CPU1 online with no timeouts;
+a clean hardware benchmark is in progress (the first run was discarded after panel input).
+The 0.9 package is also on the Mac, SHA-256
+`14c3e5ca6f58b5bd2ee202058451bc8c95feb2fcc3ec292c261794918a0c8927`.

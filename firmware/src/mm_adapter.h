@@ -302,15 +302,30 @@ static void mma_init(mma_track_t *t,unsigned track,unsigned machine,int16_t *mac
 static void mma_gate_end(mma_track_t *t,int explicit_off) {
  t->gate=0;t->gate_left=-1;if(explicit_off)t->let_go=1;
 }
-static void mma_trigger(mma_track_t *t,const uint8_t raw[71],unsigned note,unsigned velocity,int slide,int32_t gate_blocks) {
+enum { MMA_NOAMP=1u, MMA_NOFLT=2u };
+/* Independent trigger lanes. Note/velocity always update as in MONO2K.
+ * Unlike its slide shortcut, NOAMP never reopens the gate: a filter-only
+ * sliding event may restart FLT while preserving the running AMP lifetime. */
+static void mma_trigger_mask(mma_track_t *t,const uint8_t raw[71],unsigned note,unsigned velocity,
+                             int slide,int32_t gate_blocks,unsigned skip) {
  mma_parameters(t,raw);t->note=note>127?127:note;t->ptarget=t->note*64;
- t->vel=velocity>127?127:velocity;t->gate_left=gate_blocks;
- if(slide&&t->sounding){t->slide=1;t->gate=1;return;}
- t->slide=0;if(!t->sounding||!t->eff[MMA_PORT])t->pitch=t->ptarget;
- t->gate=1;t->let_go=0;t->sounding=1;t->astage=1;
- if(!t->eff[MMA_ATK])t->aenv=0;
- mm2_machine_trigger(&t->machine,t->mach,t->eff);
- t->fstage=1;t->fenv=0;
+ t->vel=velocity>127?127:velocity;
+ if(!(skip&MMA_NOAMP))t->gate_left=gate_blocks;
+ if(slide&&t->sounding){
+  t->slide=1;
+  if(!(skip&MMA_NOAMP)){t->gate=1;return;}
+ }else{
+  t->slide=0;if(!t->sounding||!t->eff[MMA_PORT])t->pitch=t->ptarget;
+ }
+ if(!(skip&MMA_NOAMP)){
+  t->gate=1;t->let_go=0;t->sounding=1;t->astage=1;
+  if(!t->eff[MMA_ATK])t->aenv=0;
+  mm2_machine_trigger(&t->machine,t->mach,t->eff);
+ }
+ if(!(skip&MMA_NOFLT)){t->fstage=1;t->fenv=0;}
+}
+static void mma_trigger(mma_track_t *t,const uint8_t raw[71],unsigned note,unsigned velocity,int slide,int32_t gate_blocks) {
+ mma_trigger_mask(t,raw,note,velocity,slide,gate_blocks,0);
 }
 /* FX input is pre-VOL for chorus/dynamics and post-VOL/clip/LEVEL for ring.
  * previous_pitch_q6 is preceding track's pitch (FM external frequency).

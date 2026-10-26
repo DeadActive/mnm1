@@ -179,7 +179,7 @@ static void ui_leds(void)
         const track_t *t = TSEL;
         for (k = 0; k < 16u; k++) {
             uint32_t si = ui.bank * 16u + k;
-            int on = si < view_len(t) && view_step(t, si).on && (!acc_oct || view_step(t, si).acc);   /* OCT+ held:
+            int on = si < view_len(t) && step_lane_on(view_step(t, si)) && (!acc_oct || view_step(t, si).acc);   /* OCT+ held:
                                                        * the accents */
             if (song.playing && si == view_idx(t))
                 on = !on;
@@ -446,6 +446,7 @@ static void edit_param(uint32_t slot, int32_t steps)
     if (pg->scope == SC_GRID) {
         if (slot == 0u)
             bank_set((int32_t)ui.bank + (steps > 0 ? 1 : -1));
+        else if(slot==1u){ui.lane=(uint8_t)clamp((int)ui.lane+(steps>0?1:-1),0,3);ui.force=1;}
         return;
     }
     if (pg->graph == GR_MOTION) {                     /* the MOTION page's own knobs */
@@ -775,6 +776,7 @@ static void srec_note(uint32_t key)                    /* a key pressed: its not
     }
     s = &t->step[ui.sr_cur];
     s->on = 1;
+    s->rsv=0;
     s->tie = 0;
     s->nt = (int8_t)clamp(keys_nt(key), NT_MIN, NT_MAX);
     t->key_nt = s->nt;
@@ -1106,7 +1108,14 @@ static void ui_input(void)
         /* PERFORM up: SELECT turns no page under it (item 7; the turn dropped) */
     } else if (s) {                                     /* SELECT: the section's pages; HOME's TRACKS mode: BPM; an
                                                          * 8-knob page (MNM-1): the track's machine, a detent each */
-        if (!ui.home && !ui.menu && cur_page()->tab) {
+        if(grid_mode()&&held_step()<NSTEP){
+            if(!song_lock()){
+                step_t *st=&TSEL->step[held_step()];unsigned type=step_type(st->rsv);
+                st->rsv=STEP_TYPES[clamp((int)(type<8?type:0)+(s>0?1:-1),0,7)];st->on=1;
+                for(unsigned i=0;i<16;i++)if(ui.step_t0[i])ui.step_t0[i]|=2u;
+                ui_say("TRIG ",STEP_TYPE_NAMES[step_type(st->rsv)]);ui.force=1;
+            }
+        } else if (!ui.home && !ui.menu && cur_page()->tab) {
             for (; s; s += s > 0 ? -1 : 1)
                 model_step(s > 0 ? 1 : -1);
         } else if (!mix_mode())

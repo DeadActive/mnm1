@@ -5,6 +5,13 @@ own history is in its repository.
 
 ## Unreleased
 
+## 0.9.0 - 2026-10-26
+
+- Add independent AMP, FILTER and LFO trig lanes, trigless notes, note-off, pitchless and locks-only steps. Ratchets retain their original event flags.
+- STEP knob 2 selects ALL/AMP/FILTER/LFO; holding a step and turning SELECT chooses its trig type. Existing probability, ratchet, accent and parameter-slide knobs remain available.
+- Keep the last sounding note for pitchless events after arpeggiation, and advance silent calibrated filter envelopes without allocating an audible voice.
+- Save step flags in MNM5 projects and version-two patterns, read older formats as ALL, and restore parameter-slide on project load.
+
 ## 0.8.0 - 2026-10-26
 
 - Add eight patterns, eight independent kits and 128 full user sounds, including calibrated parameters. Keep legacy storage until an explicit migration.

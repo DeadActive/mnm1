@@ -740,8 +740,8 @@ static int fdrb_clamps(void)
     p->sum = proj_sum(p);
     project_load(0);
     return trk[4].step[2].on && trk[4].step[2].acc && trk[4].step[2].slide && trk[4].step[2].tie &&
-           trk[4].step[2].rat == 3u && ((const uint8_t *)&trk[4].step[2])[0] == 0x3Fu &&
-           ((const uint8_t *)&trk[4].step[2])[3] == 0u && trk[4].step[3].nt == NT_MAX && trk[4].step[5].nt == NT_MIN;
+           trk[4].step[2].rat == 3u && ((const uint8_t *)&trk[4].step[2])[0] == 0x7Fu &&
+           ((const uint8_t *)&trk[4].step[2])[3] == (0x5Au&ST_MASK) && trk[4].step[3].nt == NT_MAX && trk[4].step[5].nt == NT_MIN;
 }
 /* a broken song or name: the project loads, they are dropped */
 static int fdr9_bad_song_name_dropped(void)

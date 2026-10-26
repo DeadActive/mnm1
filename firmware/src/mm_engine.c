@@ -80,7 +80,26 @@ static void mmen_trigger(track_t *t,dvoice_t *v) {
  mm_controls_get(t,raw);mma_trigger(s,raw,(unsigned)clamp(60+t->nt,0,127),v->vel,0,-1);
  v->active=1;v->t=0;
 }
+static void mmen_trigger_mask(track_t *t,dvoice_t *v,unsigned velocity,unsigned flags) {
+ mma_track_t *s=mmen_prepare(t);uint8_t raw[71];if(!s)return;
+ mm_controls_get(t,raw);
+ int32_t pitch=s->pitch,target=s->ptarget;uint8_t note=s->note,slide=s->slide;
+ mma_trigger_mask(s,raw,(unsigned)clamp(60+t->nt,0,127),velocity,0,-1,flags&(ST_NOAMP|ST_NOFLT));
+ if((flags&(ST_NOAMP|ST_NOPITCH))==(ST_NOAMP|ST_NOPITCH)){
+  s->pitch=pitch;s->ptarget=target;s->note=note;s->slide=slide;
+ }
+ if(!(flags&ST_NOAMP)){v->active=1;v->t=0;}
+}
+static void mmen_idle_filter(track_t *t,unsigned n) {
+ unsigned k=mmen_index(t);if(!mmen_ready[k])return;
+ mma_track_t *s=&mmen_state[k];if(s->sounding||s->astage||!s->fstage)return;
+ uint8_t raw[71];mm_controls_get(t,raw);mma_parameters(s,raw);s->bpm=song.g[G_BPM]>0?(unsigned)song.g[G_BPM]:1;
+ for(unsigned off=0;off<n;off+=16){
+  mma_modulation(s,k<NTRK?mmen_delta[off/16][k]:0);mma_env_block(s);
+ }
+}
 static void mmen_glide(track_t *t,dvoice_t *v) {
+    t->trig_nt=t->nt;
  mma_track_t *s=mmen_prepare(t);uint8_t raw[71];if(!s)return;
  mm_controls_get(t,raw);mma_trigger(s,raw,(unsigned)clamp(60+t->nt,0,127),v->vel,1,-1);
  v->active=1;v->t=0;

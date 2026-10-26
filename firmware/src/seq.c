@@ -202,7 +202,7 @@ static __attribute__((noinline)) void acid_step(track_t *t, const step_t *s, con
     int plays;
     model_follow(t);                                   /* a model changed this block: not its old voice's gate */
     held = dv_gate_open(t, v);
-    t->rat_n = 0;
+    t->rat_n = 0;t->rat_flags=0;
     if (t->p[P_SRC]) {
         if (t->gate_n == GATE_HELD)
             acid_gate_off(t);
@@ -248,11 +248,21 @@ static void step_fire(track_t *t, uint32_t len_s)
 {
     const step_t *s = &seq_steps(t)[t->seq_idx];
     uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u;
+    if(s->rsv){
+        t->rat_n=0;
+        if(t->p[P_SRC]||!s->on||(s->tie&&!(s->rsv&ST_NOTEOFF))||!step_plays(t,s,len))return;
+        t->rat_flags=s->rsv&ST_MASK;t->rat_vel=(uint8_t)(s->acc?127u:96u);
+        drum_play_masked(t,t->rat_vel,s->nt,t->rat_flags);
+        if(t->rat_flags&ST_NOTEOFF)return;
+        t->rat_nt=t->nt;t->rat_n=(uint8_t)(s->rat+1u);t->rat_k=1;t->rat_len=len_s;
+        if(!(t->rat_flags&ST_NOAMP)&&trk_model(t)->gate){t->slide_in=s->slide;acid_gate_set(t,seq_next(t));}
+        return;
+    }
     if (trk_model(t)->gate) {
         acid_step(t, s, seq_next(t), len_s);
         return;
     }
-    t->rat_n = 0;
+    t->rat_n = 0;t->rat_flags=0;
     if (t->p[P_SRC] || !s->on || s->tie || !step_plays(t, s, len))
         return;
     t->rat_vel = (uint8_t)(s->acc ? 127u : 96u);
@@ -270,9 +280,9 @@ static void rat_due(track_t *t, uint32_t cur_len)
         uint32_t at = t->rat_k * t->rat_len / t->rat_n;
         if (at > t->seq_pos || at >= cur_len)
             break;
-        drum_play(t, t->rat_vel, t->rat_nt);
+        drum_play_masked(t, t->rat_vel, t->rat_nt,t->rat_flags);
         t->rat_k++;
-        if (trk_model(t)->gate)
+        if (!(t->rat_flags&ST_NOAMP)&&trk_model(t)->gate)
             acid_gate_set(t, seq_next(t));          /* ACID: each hit its gate, the last one held when it slides */
     }
 }
@@ -288,6 +298,7 @@ static uint32_t rec_hit(track_t *t, uint32_t vel)
         t->rskip_idx = (uint8_t)idx;
     }
     t->step[idx].on = 1;
+    t->step[idx].rsv=0;
     t->step[idx].tie = 0;                           /* (a TIE is read first: the hit would never play) */
     t->step[idx].cond = 0;                          /* a recorded step always plays, once */
     t->step[idx].rat = 0;
