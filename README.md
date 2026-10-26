@@ -15,7 +15,7 @@ MNM-1's own. Calibrated audio algorithms and 120 complete sounds are ported from
 - **Play it in your browser:** <https://galfaroth.github.io/mnm1/>. The page runs the real firmware, compiled to
   WebAssembly, on an FM-1 you can play with the mouse, a touch screen or the computer keyboard.
 - **Install it on your FM-1:** <https://galfaroth.github.io/mnm1/webapp/installer/>, in Chrome or Edge, over the
-  FM-1's USB cable. Or from a terminal: `python3 tools/fm1_install.py mnm1-0.11.0.fwsc --port FM-1 --yes`
+  FM-1's USB cable. Or from a terminal: `python3 tools/fm1_install.py mnm1-1.0.0.fwsc --port FM-1 --yes`
   (needs `mido` and `python-rtmidi`).
 - **What comes next:** [docs/ROADMAP.md](docs/ROADMAP.md).
 - **What changed:** [CHANGELOG.md](CHANGELOG.md).
@@ -113,7 +113,7 @@ The web simulator and site ([docs/SIMULATOR.md](docs/SIMULATOR.md)) need Python 
 emscripten (a native `emcc`, e.g. `brew install emscripten`, or Docker):
 
 ```sh
-tools/build_sim.sh --preview --package dist/mnm1-0.11.0.fwsc
+tools/build_sim.sh --preview --package dist/mnm1-1.0.0.fwsc
 cd build/sim/preview && python3 -m http.server 8001
 ```
 

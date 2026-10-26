@@ -1,9 +1,10 @@
-# MNM-1 1.0 release candidate
+# MNM-1 1.0 release validation
 
-The public release remains 0.11.0. This branch prepares 1.0 for final tests;
-no 1.0 tag or public installer is published before the device checks pass.
-FM-1 was reconnected by the owner for installation and final checks. The candidate reports `MNM1-1.0.0`;
-its package filename and manifest identify the exact candidate.
+The owner confirmed physical-panel SAVE works and explicitly authorized publishing
+1.0 with the updated site and no public roadmap. The published package is the
+same binary installed and checked as RC1, reporting `MNM1-1.0.0`.
+The remaining checks below are recorded honestly; publication does not turn
+pending checks into passes.
 
 ## Implemented
 
@@ -54,9 +55,9 @@ transposition and offset. It never loads automatically over an existing project.
 - Expanded library: atomic saves, interrupted migration, pattern/kit/sound groups,
   old pattern versions and unchanged reads remain covered by the existing tests.
 
-## Required device checks — not yet passed
+## Device checklist — scope and remaining coverage
 
-1. **Reported bank-A error (release blocker).** Record the exact UI message and
+1. **Reported bank-A error (not reproduced; SAVE accepted by owner).** Record the exact UI message and
    whether transport was stopped. After attempting SAVE, read USB `storage` and
    `status` before another save changes the diagnostic. Do not clear flash
    protection or format a library to hide this error.
@@ -80,8 +81,8 @@ transposition and offset. It never loads automatically over an existing project.
 7. **Timing and release.** Run the full device benchmark with matching host
    report, record CPU/late halves and stack/timeouts, and distinguish any manual
    intervention from device failure. Heavy combinations can exceed CPU limits.
-   Publish the tag, matching source/simulator/package and updated site only after
-   required checks are accepted.
+   The owner accepted publication after the save checks; a fresh full 1.0 benchmark
+   remains pending.
 
 ## Read-only USB storage diagnostic
 
@@ -129,3 +130,5 @@ all populated-song hardware cases. The earlier owner-reported error was not
 reproduced and its cause is not established. The populated-song host fault
 suite passed again under ASan/UBSan. Migration, full-song hardware audition and
 final target performance acceptance remain separate checks before publication.
+
+Owner confirmation: panel SAVE works; publish 1.0 and remove the public roadmap.

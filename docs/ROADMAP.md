@@ -1,3 +1,8 @@
+# Archived development notes
+
+The public roadmap was removed at the owner's request for the 1.0 release.
+The historical planning notes below are not a current release schedule.
+
 # MNM-1 roadmap
 
 What is planned for MNM-1, within what the FM-1's panel, CPU and memory allow. Nothing here is promised by a date;

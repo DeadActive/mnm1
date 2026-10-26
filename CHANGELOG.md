@@ -7,7 +7,7 @@ own history is in its repository.
 
 ## 1.0.0 - 2026-10-26
 
-Release candidate; final FM-1 tests and the reported slot-A save error still need hardware confirmation.
+Installed and verified on FM-1. Two bank-A saves passed CRC/readback checks across a restart, bank B remained unchanged, and the owner confirmed panel SAVE works.
 
 - Add SONG RANGE, MIX and FLOW: per-row transpose, offset, length, mutes, tempo, counted backward loops and jumps. STOP restores the original tempo, mutes and track options. Offset follows source notes, locks, slides and swing together.
 - Add SONG FILE with confirmed NEW SONG and reloadable AFTER HOURS demo. The eight-row arrangement uses kick, snare, hats, bass, melody, locks and phaser; built-in phrases occupy no user slots. Saved demo arrangements retain their built-in source references.
@@ -15,6 +15,7 @@ Release candidate; final FM-1 tests and the reported slot-A save error still nee
 - Make SELECT navigate all pages in the current family, including appended performance and SONG pages.
 - Distinguish a committed project with a failed startup-bank marker as SAVED; BOOT ERROR. Add read-only USB `storage` diagnostics with the failing operation, address, error and flash status; no protection flags are changed.
 - Verify all legacy banks through simulated reboot, interrupted writes and write protection; keep the previous committed data on failed saves.
+- Publish the matching 1.0 simulator and installer; remove the roadmap from the project website.
 
 ## 0.11.0 - 2026-10-26
 

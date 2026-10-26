@@ -88,8 +88,8 @@ test('installer: a version choice (with or without Bluetooth), hidden unless the
 // ---- the landing page: the simulator as the hero, what it does, install
 const LANDING = readFileSync('web/sim/index.html', 'utf8');
 
-test('landing: hero (with the device and the #play end), manual, roadmap, install; install goes to the installer; the source is linked', () => {
-  for (const id of ['hero', 'manual', 'roadmap', 'install']) assert.match(LANDING, new RegExp(`<section[^>]*id="${id}"`), id);
+test('landing: hero (with the device and the #play end), manual, install; install goes to the installer; the source is linked', () => {
+  for (const id of ['hero', 'manual', 'install']) assert.match(LANDING, new RegExp(`<section[^>]*id="${id}"`), id);
   const hero = LANDING.slice(LANDING.indexOf('id="hero"'), LANDING.indexOf('id="manual"'));
   assert.match(hero, /id="device"/, 'the device lives in the hero');
   assert.match(hero, /id="play"/, 'the end of the hero track is #play');
@@ -150,7 +150,7 @@ test('hero pose: the shine never plays while the scene is blurred (a blur filter
 import { BTN, ENC } from '../web/sim/controls.js';
 
 test('manual: tracks and machines, the 8-knob pages, the sequencer; every machine the firmware has is named', () => {
-  const sec = LANDING.slice(LANDING.indexOf('id="manual"'), LANDING.indexOf('id="roadmap"'));
+  const sec = LANDING.slice(LANDING.indexOf('id="manual"'), LANDING.indexOf('id="install"'));
   for (const id of ['m-tracks', 'm-pages', 'm-seq', 'm-more']) assert.match(sec, new RegExp(`id="${id}"`), id);
   const names = [...readFileSync('firmware/src/dmodels.c', 'utf8').match(/N_MODEL\[NMODELS\] = \{([^}]*)\}/)[1]
     .matchAll(/"([\w+-]+)"/g)].map(m => m[1]);
@@ -160,13 +160,6 @@ test('manual: tracks and machines, the 8-knob pages, the sequencer; every machin
   assert.ok(rows.length >= 5, 'the pages table');
   for (const r of rows) assert.ok(labels.has(r), `${r} is not on the panel`);
   assert.match(sec, /LOCK/, 'parameter locks explained');
-});
-
-test('roadmap: 0.11, 1.0, maybe and not possible; it links the full list', () => {
-  const sec = LANDING.slice(LANDING.indexOf('id="roadmap"'), LANDING.indexOf('id="install"'));
-  for (const h of ['Available: 0.11', 'Candidate: 1.0', 'Maybe', 'Not on this hardware']) assert.match(sec, new RegExp(`<h4>${h}`), h);
-  assert.match(sec, /docs\/ROADMAP\.md/);
-  assert.ok(readFileSync('docs/ROADMAP.md', 'utf8').length > 1000);
 });
 
 test('install: the version and what is new, the connection diagram, the installer, the way back and the recovery', () => {
@@ -187,7 +180,7 @@ test('Controls opens its help over the hero stage, next to the button (not below
 test('footer: the name and its origin, the ways around the page, the credits and the licence', () => {
   const foot = LANDING.slice(LANDING.indexOf('<footer'), LANDING.indexOf('</footer>'));
   assert.match(foot, /MNM-1/);
-  for (const href of ['#play', '#manual', '#roadmap', 'webapp/installer/', 'source.tar.gz']) assert.ok(foot.includes(`href="${href}"`), href);
+  for (const href of ['#play', '#manual', 'webapp/installer/', 'source.tar.gz']) assert.ok(foot.includes(`href="${href}"`), href);
   for (const credit of ['Hortator', 'Felucca', 'Leo Kuroshita', 'DEADACTIVE', 'Terminus', 'CC0', 'GPL-3.0', 'not affiliated',
                         'Mutable Instruments', 'Emilie Gillet', 'DaisySP', 'Electrosmith', 'jl-uboot-tool'])
     assert.ok(foot.includes(credit), credit);
