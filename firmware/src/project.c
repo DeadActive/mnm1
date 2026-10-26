@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Drum machine fork: 2026 DEADACTIVE */
-/* Four reset-persistent RAM slots, backed by flash when available. MNM4 adds per-track
- * parameters to MNM3; the flash reader validates and expands MNM3 in place. Older
- * formats are not compatible. Legacy .noinit slots use a different stride and are
- * deliberately ignored: flash is authoritative across this firmware upgrade. */
-#define PROJ_MAGIC 0x354D4E4Du                 /* "MNM5": explicit step event flags */
+/* Four reset-persistent RAM slots, backed by flash. MNM6 compacts parameters to
+ * bytes and adds sequencer options. MNM3/4/5 flash records compact in place in
+ * storage's scratch buffer; old .noinit layouts are ignored across upgrades. */
+#define PROJ_MAGIC 0x364D4E4Du                 /* "MNM6": byte parameters and sequencer options */
+#define PROJ_V5_MAGIC 0x354D4E4Du
 #define PROJ_V4_MAGIC 0x344D4E4Du
 #define PROJ_V3_MAGIC 0x334D4E4Du              /* "MNM3" */
 #define PROJ_V3_PARAMS 80u
@@ -19,24 +19,36 @@ static void expanded_boot(void);
 static void expanded_reset(void);
 static int expanded_save_sound(uint32_t slot,const track_t *t);
 static int expanded_delete_sound(uint32_t slot);
+static int seq_options_valid(const seq_options_t *s);
+static int pattern_options_valid(const pattern_options_t *s);
 typedef struct {
-    int16_t p[P_NSTORED];                       /* the block; P_NSTORED + j: step[j].rsv (proj_xp_*) */
+    uint8_t p[P_COUNT];
     step_t step[NSTEP];
 } proj_trk_t;
-typedef char proj_xp_fit[P_COUNT - P_NSTORED <= NSTEP ? 1 : -1];
-/* the parameters past the block: into / out of a stored track's steps' spare bytes (0 = their value 0) */
-static void proj_xp_put(proj_trk_t *s, const int16_t *p)
+static const param_desc_t *proj_desc(unsigned model,unsigned id)
 {
-    uint32_t i;
-    for (i = P_NSTORED; i < P_COUNT; i++)
-        s->step[i - P_NSTORED].rsv = (uint8_t)clamp(p[i], 0, 255);
+    if(id>=P_E0&&id<=P_E7)return &DMODELS[model].edit[id-P_E0];
+    if(mmen_is_model(model)&&mm_control_desc(id))return mm_control_desc(id);
+    return &TP[id];
 }
-static int16_t proj_xp_get(const proj_trk_t *s, uint32_t id) { return (int16_t)s->step[id - P_NSTORED].rsv; }
+/* Stored bytes use two's complement only for a signed parameter descriptor. */
+static int16_t proj_value(const proj_trk_t *s,unsigned id)
+{
+    unsigned m=s->p[P_MODEL]<NMODELS?s->p[P_MODEL]:0;
+    return proj_desc(m,id)->min<0?(int8_t)s->p[id]:s->p[id];
+}
+static uint8_t proj_byte(unsigned model,unsigned id,int value)
+{
+    const param_desc_t *d=proj_desc(model,id);
+    return (uint8_t)clamp(value,d->min,d->max);
+}
 typedef struct {
     uint32_t magic, size;
     int16_t g[G_COUNT];
     uint8_t sel, rsv[3];
     proj_trk_t t[NTRK];
+    seq_options_t seq[NTRK];
+    pattern_options_t options;
     motion_store_t motion;                      /* FDR8: the motion (motion.c; MNM-1 0.5: the locks, 240) */
     chain_config_t song;                        /* FDR9: the song (song.c) */
     char name[NAME_LEN];                        /* FDR9: the name (NAME_SET, 0-padded; "" = none) */
@@ -48,13 +60,13 @@ typedef struct {
 /* Fixed old layout: do not use P_COUNT here when adding parameters. */
 typedef struct {
     int16_t p[PROJ_V3_PARAMS];
-    step_t step[NSTEP];
+    step_t step[64];
 } mnm_proj_v3_trk_t;
 typedef struct {
     uint32_t magic, size;
     int16_t g[PROJ_V3_GLOBALS];
     uint8_t sel, rsv[3];
-    mnm_proj_v3_trk_t t[NTRK];
+    mnm_proj_v3_trk_t t[6];
     motion_store_t motion;
     chain_config_t song;
     char name[NAME_LEN];
@@ -62,6 +74,14 @@ typedef struct {
     uint8_t pre_ed[NTRK];
     uint32_t sum;
 } mnm_project_v3_t;
+/* MNM4 and MNM5 share the fixed 97-parameter, 45-global layout. */
+typedef struct {int16_t p[97];step_t step[64];} mnm_proj_v5_trk_t;
+typedef struct {
+    uint32_t magic,size;int16_t g[45];uint8_t sel,rsv[3];
+    mnm_proj_v5_trk_t t[6];motion_store_t motion;chain_config_t song;
+    char name[12];uint16_t pre[6];uint8_t pre_ed[6];uint32_t sum;
+} mnm_project_v5_t;
+_Static_assert(sizeof(mnm_project_v5_t)==3836,"MNM4/5 layout changed");
 _Static_assert(sizeof(mnm_project_v3_t) == 3624u, "MNM3 layout changed");
 _Static_assert(P_NSTORED >= PROJ_V3_PARAMS, "MNM4 parameter block shrank");
 typedef char project_size[sizeof(project_t) <= 3840u ? 1 : -1];   /* (MNM-1: 6 tracks, room left) */
@@ -70,7 +90,7 @@ static union {
     project_t projects[4];
     expanded_chain_slot_t chain[6];
 } proj_memory __attribute__((section(".noinit")));
-_Static_assert(sizeof proj_memory==4*sizeof(project_t), "chain cache exceeds old project RAM");
+_Static_assert(sizeof proj_memory<=15696u, "project/chain cache exceeds RAM budget");
 #define proj_slot proj_memory.projects
 static expanded_chain_slot_t expanded_chain_extra[2];
 
@@ -85,42 +105,45 @@ static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
 static uint32_t proj_sum(const project_t *p) { return proj_hash(p, sizeof *p - 4u); }
 static int proj_ok(const project_t *q) { return q->magic == PROJ_MAGIC && q->size == sizeof *q && q->sum == proj_sum(q); }
 
-/* Destination is above source. Backwards copying avoids a second project buffer
- * and a 3.6 KiB stack allocation on the device. */
-static void proj_expand_copy(void *dst, const void *src, uint32_t n)
+/* Forward copying compacts overlapping legacy fields without a project-sized stack. */
+static void proj_compact_copy(void *dst,const void *src,unsigned n)
 {
-    uint8_t *d = dst;
-    const uint8_t *s = src;
-    while (n) { --n; d[n] = s[n]; }
+    uint8_t *d=dst;const uint8_t *s=src;
+    while(n--)*d++=*s++;
 }
-static int proj_decode(project_t *q, uint32_t n)
+static int proj_decode(project_t *q,uint32_t n)
 {
-    const mnm_project_v3_t *old = (const mnm_project_v3_t *)(const void *)q;
-    uint32_t k, i;
-    if (n == sizeof *q && proj_ok(q))
+    const mnm_project_v3_t *v3=(const void *)q;
+    const mnm_project_v5_t *v5=(const void *)q;
+    unsigned old3=q->magic==PROJ_V3_MAGIC,old5=q->magic==PROJ_V5_MAGIC;
+    if(n==sizeof *q&&proj_ok(q)) {
+        if(!pattern_options_valid(&q->options))return 0;
+        for(unsigned k=0;k<NTRK;k++)if(!seq_options_valid(&q->seq[k]))return 0;
         return 1;
-    if(n==sizeof *q&&q->magic==PROJ_V4_MAGIC&&q->size==sizeof *q&&q->sum==proj_sum(q)){
-        for(k=0;k<NTRK;k++)for(i=0;i<NSTEP;i++)q->t[k].step[i].rsv=0;
-        q->magic=PROJ_MAGIC;q->sum=proj_sum(q);return 1;
     }
-    if (n != sizeof *old || old->magic != PROJ_V3_MAGIC || old->size != sizeof *old ||
-        old->sum != proj_hash(old, sizeof *old - 4u))
-        return 0;
-    proj_expand_copy(&q->motion, &old->motion,
-                     (uint32_t)((const uint8_t *)&old->sum - (const uint8_t *)&old->motion));
-    for (k = NTRK; k--;) {
-        proj_expand_copy(q->t[k].step, old->t[k].step, sizeof old->t[k].step);
-        proj_expand_copy(q->t[k].p, old->t[k].p, sizeof old->t[k].p);
-        for (i = PROJ_V3_PARAMS; i < P_NSTORED; i++)
-            q->t[k].p[i] = TP[i].def;
+    unsigned oldsize=old3?sizeof *v3:sizeof *v5;
+    if((!old3&&!old5&&q->magic!=PROJ_V4_MAGIC)||n!=oldsize||q->size!=oldsize)return 0;
+    uint32_t sum;memcpy(&sum,(const uint8_t *)q+oldsize-4,4);
+    if(sum!=proj_hash(q,oldsize-4))return 0;
+    uint8_t sel=old3?v3->sel:v5->sel;
+    for(unsigned k=0;k<NTRK;k++) {
+        const int16_t *p=old3?v3->t[k].p:v5->t[k].p;
+        const step_t *steps=old3?v3->t[k].step:v5->t[k].step;
+        uint8_t values[P_COUNT];unsigned model=(unsigned)clamp(p[P_MODEL],0,NMODELS-1);
+        for(unsigned i=0;i<P_COUNT;i++)values[i]=proj_byte(model,i,
+            i<(old3?80u:97u)?p[i]:TP[i].def);
+        memcpy(q->t[k].p,values,sizeof values);
+        proj_compact_copy(q->t[k].step,steps,sizeof q->t[k].step);
+        if(!old5)for(unsigned i=0;i<NSTEP;i++)q->t[k].step[i].rsv=0;
     }
-    proj_expand_copy(&q->sel, &old->sel, 4u);
-    for (i = PROJ_V3_GLOBALS; i < G_COUNT; i++)
-        q->g[i] = GP[i].def;
-    for(k=0;k<NTRK;k++)for(i=0;i<NSTEP;i++)q->t[k].step[i].rsv=0;
-    q->magic = PROJ_MAGIC;
-    q->size = sizeof *q;
-    q->sum = proj_sum(q);
+    const void *tail=old3?(const void *)&v3->motion:(const void *)&v5->motion;
+    unsigned tailsize=(unsigned)((uint8_t *)&q->sum-(uint8_t *)&q->motion);
+    proj_compact_copy(&q->motion,tail,tailsize);
+    if(old3)for(unsigned i=PROJ_V3_GLOBALS;i<G_COUNT;i++)q->g[i]=GP[i].def;
+    q->sel=sel;memset(q->rsv,0,sizeof q->rsv);
+    for(unsigned k=0;k<NTRK;k++)seq_options_default(&q->seq[k]);
+    memset(&q->options,0,sizeof q->options);
+    q->magic=PROJ_MAGIC;q->size=sizeof *q;q->sum=proj_sum(q);
     return 1;
 }
 
@@ -128,9 +151,11 @@ static int proj_decode(project_t *q, uint32_t n)
 static void proj_fetch(uint32_t slot)
 {
     project_t *q = &proj_slot[slot & 3u];
-    int n = st_load(OBJ_PROJECT0 + (slot & 3u), q, sizeof *q);
-    if (n < 0 || !proj_decode(q, (uint32_t)n))
-        q->magic = 0;
+    /* st_buf is aligned and already owned by the synchronous storage reader.
+     * An old record is larger than a compact slot: never read it into that slot. */
+    int n = st_load(OBJ_PROJECT0 + (slot & 3u), st_buf, sizeof st_buf);
+    if (n < 0 || !proj_decode((project_t *)(void *)st_buf, (uint32_t)n))q->magic=0;
+    else memcpy(q,st_buf,sizeof *q);
 }
 #endif
 
@@ -168,12 +193,13 @@ static void project_save(uint32_t slot)
         p->g[i] = song.g[i];
     p->sel = song.sel;
     for (i = 0; i < NTRK; i++) {
-        memcpy(p->t[i].p, trk[i].p, sizeof p->t[i].p);
+        for(unsigned j=0;j<P_COUNT;j++)p->t[i].p[j]=proj_byte((unsigned)trk[i].p[P_MODEL],j,trk[i].p[j]);
+        p->seq[i]=trk[i].seq;
         memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
-        proj_xp_put(&p->t[i], trk[i].p);               /* KEYF: the steps' spare bytes */
         p->pre[i] = (uint16_t)preset_rec_enc(trk[i].pre);   /* (stable: a uid / a user slot, presets.c) */
         p->pre_ed[i] = trk[i].pre_ed;
     }
+    p->options=song.seq;
     p->motion = mo.s;                                  /* (stopped: the base is in the knobs) */
     p->song = chain.cfg;
     memcpy(p->name, chain.name, NAME_LEN);
@@ -226,9 +252,12 @@ static int proj_load(uint32_t slot, int irq)
             ui_message("EMPTY SLOT");
         return 0;
     }
+    if(!pattern_options_valid(&p->options))return 0;
+    for(k=0;k<NTRK;k++)if(!seq_options_valid(&p->seq[k]))return 0;
     transport_req = 2;
     if (irq)
         fm1_irq_off();                                  /* the audio ISR must not see half a project */
+    song.seq=p->options;
     mmen_reset_all();
     mmen_lfo_reset();
     mmarp_reset();
@@ -239,13 +268,14 @@ static int proj_load(uint32_t slot, int irq)
     for (k = 0; k < NTRK; k++) {
         track_t *t = &trk[k];
         const proj_trk_t *s = &p->t[k];
-        uint32_t m = (uint32_t)clamp(s->p[P_MODEL], 0, NMODELS - 1);
+        uint32_t m = (uint32_t)clamp(proj_value(s,P_MODEL), 0, NMODELS - 1);
         drum_cut(t);
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */
             const param_desc_t *d = i >= P_E0 && i <= P_E7 ? &DMODELS[m].edit[i - P_E0] : &TP[i];
             if (mmen_is_model(m) && mm_control_desc(i)) d = mm_control_desc(i);
-            t->p[i] = (int16_t)clamp(i < P_NSTORED ? s->p[i] : proj_xp_get(s, i), d->min, d->max);
+            t->p[i] = (int16_t)clamp(proj_value(s,i), d->min, d->max);
         }
+        t->seq=p->seq[k];
         t->p[P_MODEL] = (int16_t)m;
         t->model = (uint8_t)m;
         t->pre = (uint16_t)preset_ref(preset_rec_dec(p->pre[k]), m);
@@ -614,13 +644,14 @@ static uint32_t chain_prepare(void)
         if ((used >> i) & 1u) {
             const project_t *p = &proj_slot[i];
             chain_src_t *d = &chain.src[i];
+            d->seq=p->seq;d->options=&p->options;
             d->m = motion_valid(&p->motion) ? &p->motion : &MOTION_NONE;
             for (k = 0; k < NTRK; k++) {
                 d->step[k] = p->t[k].step;
-                d->model[k] = (uint8_t)p->t[k].p[P_MODEL];
+                d->model[k] = (uint8_t)proj_value(&p->t[k],P_MODEL);
                 for (j = 0; j < 4u; j++) {
                     uint32_t id = CHAIN_TIMING[j];
-                    d->timing[k][j] = (int16_t)clamp(p->t[k].p[id], TP[id].min, TP[id].max);
+                    d->timing[k][j] = (int16_t)clamp(proj_value(&p->t[k],id), TP[id].min, TP[id].max);
                 }
             }
         }

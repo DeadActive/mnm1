@@ -485,6 +485,18 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
     v = knob_turn(EN_K1 + slot, d, *vp, steps);
 
+    if(pg->scope==SC_SEQOPT){
+        if(song_lock())return;
+        if(id==SO_SWING&&v>0&&v<50)v=steps>0?50:0;
+        fm1_irq_off();
+        if(seqopt_set(TSEL,&song.seq,id,v)&&id==SO_MODE){
+            unsigned k=(unsigned)(TSEL-trk);
+            mma_keys_stop(mmarp_held[k],&mmarp_nheld[k],&mmarp_down[k]);
+            TSEL->arp_on=0;acid_gate_off(TSEL);
+        }
+        fm1_irq_on();ui.force=1;return;
+    }
+
     if (pg->scope == SC_TRACK && vp >= TSEL->p && vp < TSEL->p + P_COUNT && (PRE_SOUND(vp - TSEL->p) || (TSEL->p[P_MODEL] >= MM_MODEL_FIRST && mm_control_desc(vp - TSEL->p))) && v != *vp)
         preset_touch(TSEL);                           /* presets.c: the voice edited (not a turn at its limit) */
     *vp = (int16_t)v;

@@ -8,7 +8,7 @@
  * EDIT: SYNTH (SELECT picks the machine), AMP, then TRACK (machine, note, routing, the shared buses' sends); ENV:
  * FILTER; FX: EFFECTS, then the SLICER and the shared buses; LFO: LFO 1, 2, 3; ARP: the arpeggiator. */
 enum { FAM_HOME, FAM_SND, FAM_ENV, FAM_FX, FAM_SEQ, FAM_GLO, FAM_SAVE, FAM_GRIDS, FAM_LFO, FAM_MIX, FAM_COUNT };
-enum { SC_TRACK, SC_GLOBAL, SC_GRID, SC_MIX };   /* knobs edit: the selected track, song.g, the STEP grid, the mixer */
+enum { SC_TRACK, SC_GLOBAL, SC_GRID, SC_MIX, SC_SEQOPT };   /* knobs edit: the selected track, song.g, the STEP grid, the mixer */
 enum { GR_NONE, GR_MODEL, GR_FX, GR_SLCR, GR_GRID, GR_STEPS, GR_SLOTS, GR_MIX, GR_GRIDS, GR_COMP, GR_LFO, GR_RESON /* MNM-1: the AMP envelope */, GR_MOTION, GR_SONG, GR_FILTER,
        GR_LDEST, GR_ARP, GR_MNM };                  /* GR_MNM: the 8-knob view's lower row and strip (ui_draw.c) */
 enum { TAB_NONE, TAB_SYN, TAB_AMP, TAB_FLT, TAB_EFX, TAB_LF1, TAB_LF2, TAB_LF3, TAB_N };
@@ -22,6 +22,9 @@ typedef struct {
     uint8_t id[4];               /* parameter ids; 0xFF = empty column */
     uint8_t tab, half;           /* an 8-knob page's tab (TAB_*, 0 none) and row (0 upper: knobs 1-4, 1 lower: 5-8) */
 } page_t;
+
+#include "seq_options_ui.h"
+static int16_t seqopt_value[4];
 
 static const page_t PAGES[] = {
     /* EDIT: SYNTH (the machine's 8 knobs), AMP; then TRACK, the track's list (snd_list: MODEL, NOTE, routing), 4 a page,
@@ -67,6 +70,11 @@ static const page_t PAGES[] = {
     {"MOD FX", FAM_FX, SC_TRACK, GR_NONE, {P_MODT, P_MODR, P_MODD, P_MODM}},
     {"LOFI", FAM_FX, SC_GLOBAL, GR_NONE, {G_TAPE, G_ADPC, G_HISS, G_DRIVE}},
     {"KIT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, {G_KSLOT,G_KNAME,G_KLOAD,G_KSAVE}},
+    {"ARP MODE", FAM_GRIDS, SC_SEQOPT, GR_NONE, {SO_MODE,SO_ORDER,SO_SPEED,SO_RANGE}},
+    {"ARP TRIG", FAM_GRIDS, SC_SEQOPT, GR_NONE, {SO_OJMP,SO_AMP,SO_FLT,SO_LFO}},
+    {"ARP RHYTHM", FAM_GRIDS, SC_SEQOPT, GR_NONE, {SO_LENGTH,SO_RSTEP,SO_RON,SO_ROFF}},
+    {"SWING MASK", FAM_SEQ, SC_SEQOPT, GR_NONE, {SO_SWING,SO_SSTEP,SO_SON,0xFF}},
+    {"TRANSPOSE", FAM_SEQ, SC_SEQOPT, GR_NONE, {SO_TRANS,SO_SCALE,SO_KEY,SO_PTRANS}},
     /* HOME's TRACKS mode (spec §3: a HOME tap on HOME; no button of its own): TRACK LEVEL LEN PAN */
     {"TRACKS", FAM_MIX, SC_MIX, GR_MIX, {0xFF, 0xFF, 0xFF, 0xFF}},
 };
@@ -129,6 +137,11 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     *valp = 0;
     if (id == 0xFFu || pg->scope == SC_GRID || pg->scope == SC_MIX)
         return 0;
+    if(pg->scope==SC_SEQOPT){
+        if(id>=SO_COUNT)return 0;
+        seqopt_value[slot&3u]=(int16_t)seqopt_get(TSEL,&song.seq,id);
+        *valp=&seqopt_value[slot&3u];return &SO_DESC[id];
+    }
     if (pg->scope == SC_GLOBAL && id >= G_COUNT) {   /* TOOLS actions, MUTE, METRO */
         id = id < G_ACT_END ? id - G_COUNT : 0u;
         *valp = &song.act[id];

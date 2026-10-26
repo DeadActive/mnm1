@@ -514,7 +514,7 @@ static void fxres_render(track_t *t, dvoice_t *v, int32_t *out, uint32_t n, uint
     if (!n) return;
     if (n > CTL) n = CTL;
     memcpy(&state, &fxb[k][RS_LEN], sizeof state);
-    state.r.knt = t->nt;
+    state.r.knt = seq_note(t)-60;
     for (i = 0; i < n; i++)
         y[i] = clamp(fx_inp(&t->p[P_E0], fx_in_buf[i]), -131071, 131071);
     reson_block(t, &state.r, &state.modal, mode, y, n);

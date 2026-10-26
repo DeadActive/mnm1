@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Drum machine fork: 2026 DEADACTIVE */
 /* Parameter descriptions and value formatting. P_E0..P_E7 are described by the track's model. */
-static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};   /* ids fixed: slow rates appended */
+static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR", "3/4X", "3/2X"};   /* ids fixed: slow rates appended */
 static const char *const N_ONOFF[] = {"OFF", "ON"};
 static const char *const N_CLOCK[] = {"INT", "USB", "TRS",   /* G_CLOCK: = the input ring's source (1 USB, 2 TRS, */
 #if FELUCCA_BLE
@@ -188,7 +188,7 @@ static void mmen_legacy_defaults(track_t *t)
 /* (upstream 1.0.2, #48) the note divisions in the order of their length, longest first (triplets between their
  * neighbours), on the knobs and the gauges; the stored values (N_DIV ids: projects) stay.
  * -> the shown order of d's values (index: position, entry: value), 0 = the values' own order */
-static const uint8_t DIV_ORDER[10] = {9, 8, 7, 6, 0, 1, 4, 2, 5, 3};   /* 4BAR 2BAR 1/1 1/2 1/4 1/8 8T 1/16 16T 1/32 */
+static const uint8_t DIV_ORDER[12] = {9, 8, 7, 6, 0, 1, 4, 10, 2, 5, 11, 3};   /* 4BAR 2BAR 1/1 1/2 1/4 1/8 8T 1/16 16T 1/32 */
 static const uint8_t *enum_order(const param_desc_t *d) { return d->names == N_DIV ? DIV_ORDER : 0; }
 static int32_t enum_rank(const param_desc_t *d, int32_t v)   /* v's place in the shown order (+ min): the gauges */
 {

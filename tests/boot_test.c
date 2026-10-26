@@ -686,12 +686,13 @@ static int fdra_clamps(void)
     host_init();
     persist_boot();
     project_save(0);
-    p->t[4].p[P_FLPQ] = 300;
-    p->t[4].p[P_FCUT] = 300;
-    p->t[4].p[P_FENV] = -200;
+    p->t[4].p[P_FLPQ] = 255;                    /* unsigned byte above the descriptor maximum */
+    p->t[4].p[P_FCUT] = 255;
+    p->t[4].p[P_FENV] = 0x80;                   /* signed byte -128: clamp to -64 */
+    p->t[4].p[P_FWOFS] = 0x7F;                  /* signed byte +127: clamp to +63 */
     p->sum = proj_sum(p);
     project_load(0);
-    return trk[4].p[P_FLPQ] == 127 && trk[4].p[P_FCUT] == 127 && trk[4].p[P_FENV] == -64;
+    return trk[4].p[P_FLPQ] == 127 && trk[4].p[P_FCUT] == 127 && trk[4].p[P_FENV] == -64 && trk[4].p[P_FWOFS] == 63;
 }
 /* FDRB (ACID): the step's bytes: byte 0 = on | acc << 1 | slide << 2 | tie << 3 | rat << 4, byte 1 cond, byte 2 nt */
 static int fdrb_step_layout(void)
@@ -777,8 +778,9 @@ static int song_garbage_slot(void)
     rc_empty = chain_prepare();
     project_save(1);
     memset(p->t[0].step, 0xFF, sizeof p->t[0].step);  /* cond 255, rat 255, on 255 */
-    p->t[0].p[P_SLEN] = 999;
-    p->t[0].p[P_SDIV] = -7;
+    p->t[0].p[P_SLEN] = 255;                    /* corrupt unsigned wire values */
+    p->t[1].p[P_SLEN] = 0;                      /* below the descriptor minimum */
+    p->t[0].p[P_SDIV] = 255;                    /* unsigned byte clamps high, not to zero */
     p->motion.count = 200;                           /* broken */
     p->sum = proj_sum(p);
     rc = chain_prepare();
@@ -786,7 +788,8 @@ static int song_garbage_slot(void)
         render_mix(L, R, CTL);
     transport_req = 2;
     render_mix(L, R, CTL);
-    return rc_empty == 4u && rc == 0u && chain.src[1].timing[0][0] == NSTEP && chain.src[1].timing[0][1] == 0 &&
+    return rc_empty == 4u && rc == 0u && chain.src[1].timing[0][0] == NSTEP && chain.src[1].timing[0][1] == TP[P_SDIV].max &&
+           chain.src[1].timing[1][0] == TP[P_SLEN].min &&
            chain.src[1].m == &MOTION_NONE && !song.playing;
 }
 /* LOAD while a song plays: refused */

@@ -145,6 +145,21 @@ typedef struct {
     uint8_t fx;                  /* an FX machine (mm_fx.c): it processes its input (P_IN), makes no sound itself */
 } dmodel_t;
 
+/* Pattern-owned options; byte-only layout is shared by flash records. */
+typedef struct {
+    uint8_t swing[8];
+    int8_t arp_offset[16];
+    uint8_t arp_mask[2];
+    uint8_t arp_mode_order, arp_ojmp, arp_len, arp_flags;
+    int8_t transpose;
+    uint8_t scale_key, arp_speed;
+} seq_options_t;
+typedef struct {uint8_t swing;int8_t transpose;uint8_t scale,key;} pattern_options_t;
+_Static_assert(sizeof(seq_options_t)==33,"sequence option wire size");
+static void seq_options_default(seq_options_t *s)
+{
+    *s=(seq_options_t){.swing={170,170,170,170,170,170,170,170},.arp_mask={255,255},.arp_len=8,.arp_speed=6};
+}
 /* ------------------------------------------------------------ track --- */
 typedef struct {                 /* one sequencer step (4 B, stored as is); all zero = a plain step, off, at C4 */
     uint8_t on : 1, acc : 1;     /* hit; accent (velocity 127, else 96) */
@@ -172,6 +187,7 @@ typedef struct track {
     int32_t dtail;               /* declick: last output of cut voices, decaying */
     /* sequencer */
     step_t step[NSTEP];
+    seq_options_t seq;
     int8_t nt;                   /* the playing note's offset from C4 (the step's, 0 for MIDI, keys): models read TUNE through dm_tune */
     uint32_t gate_n;             /* ACID: samples until its gate closes, GATE_HELD while the next step decides, 0 closed */
     uint8_t slide_in;            /* ACID: the previous step slides into this one */
@@ -228,6 +244,7 @@ typedef struct {
     uint32_t sheds;              /* overload sheds (audio.c shed_voice): the top bar's CPU icon (ui_draw.c) */
     uint32_t master_q12;
     int32_t batt_raw;            /* smoothed ADC ch3 (battery divider), 0 = not read yet */
+    pattern_options_t seq;
     int16_t act[G_ACT_END-G_COUNT]; /* TOOLS/KIT action knobs, never stored; MUTE: a
                                   * copy of settings.mutebar; METRO: of fx_metro */
     uint8_t mute_q;              /* mutes to flip on the next bar (bit per track; seq.c) */

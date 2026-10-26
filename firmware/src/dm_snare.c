@@ -250,7 +250,8 @@ static void ssnap_render(track_t *t, dvoice_t *v, int32_t *out, uint32_t n)
     PD("TONE", F_INT, 0, 127, 64), PD("SNAP", F_INT, 0, 127, 64), PD("-", F_INT, 0, 0, 0), \
     PD("-", F_INT, 0, 0, 0), PD("-", F_INT, 0, 0, 0), PD("-", F_INT, 0, 0, 0)}, ssnap_trigger, ssnap_render, 2}
 
-static void scrak_start(scrak_t *k, int32_t note, int32_t tone, int32_t decay, int32_t chr, int32_t vel, uint32_t seed)
+/* Keep the same trigger-only scheduling isolation as kpunc_start. */
+static __attribute__((noinline,optnone)) void scrak_start(scrak_t *k, int32_t note, int32_t tone, int32_t decay, int32_t chr, int32_t vel, uint32_t seed)
 {
     int32_t sn = qknob(chr), d = qknob(decay), fa = qknob(tone), acc = qknob(vel);
     int32_t f0 = qnote(note), dxt = qm(d, QONE + qm(d, d - QONE)), r;
@@ -271,7 +272,7 @@ static void scrak_start(scrak_t *k, int32_t note, int32_t tone, int32_t decay, i
     k->samp = k->damp = Q24(0.3) + qm(Q24(0.7), acc);
     k->fm = QONE;
     k->ph0 = k->ph1 = 0;
-    k->hold = (int32_t)(((int64_t)(Q24(0.04) + qm(d, Q24(0.03))) * FS) >> 24);
+    k->hold = dm_trigger_mul24(Q24(0.04) + qm(d, Q24(0.03)), FS);
     k->t = 0;
     k->rng = seed;
 }

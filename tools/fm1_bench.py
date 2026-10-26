@@ -146,11 +146,16 @@ def device_run(port):
     if "fm1-drums" not in st:
         raise SystemExit(f"fm1_bench: {ports[0]} does not answer as the FM-1 drum firmware")
     print(f"FM-1 on {ports[0]}: running the cases (~4 min, the speaker silent; it restarts after)", flush=True)
+    OUT.mkdir(parents=True, exist_ok=True)
+    log = OUT / "device.log"
+    log.write_text(st)
     p.send("bench yes")
     text, last, end = "", time.time(), time.time() + 20 * 60
     while time.time() < end:
         chunk = p.read(1.0)
         if chunk:
+            with log.open("a") as f:
+                f.write(chunk)
             text += chunk
             last = time.time()
             for ln in chunk.splitlines():
@@ -159,7 +164,7 @@ def device_run(port):
         if "bench done" in text:
             break
         if time.time() - last > 60:
-            raise SystemExit("fm1_bench: the FM-1 stopped answering (partial log in build/bench/device.log)")
+            raise SystemExit(f"fm1_bench: the FM-1 stopped answering (partial log in {log})")
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "device.log").write_text(text)
     return text

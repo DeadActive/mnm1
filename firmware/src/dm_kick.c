@@ -179,7 +179,13 @@ static void kboom_render(track_t *t, dvoice_t *v, int32_t *out, uint32_t n)
     PD("TONE", F_INT, 0, 127, 64), PD("PUNCH", F_INT, 0, 127, 32), PD("-", F_INT, 0, 0, 0), \
     PD("-", F_INT, 0, 0, 0), PD("-", F_INT, 0, 0, 0), PD("-", F_INT, 0, 0, 0)}, kboom_trigger, kboom_render, 2}
 
-static void kpunc_start(kpunc_t *k, int32_t note, int32_t tone, int32_t decay, int32_t chr, int32_t vel, uint32_t seed)
+/* Trigger-only isolation: optimized inline math can schedule SRAM loads beside
+ * wide products on pi32v2. Keep helpers optimized, but call them from this setup. */
+static __attribute__((noinline)) int32_t dm_trigger_mul24(int32_t a,int32_t b)
+{
+    return (int32_t)(((int64_t)a*b)>>24);
+}
+static __attribute__((noinline,optnone)) void kpunc_start(kpunc_t *k, int32_t note, int32_t tone, int32_t decay, int32_t chr, int32_t vel, uint32_t seed)
 {
     int32_t h = qknob(chr), morph = qknob(decay), timbre = qknob(tone), acc = qknob(vel);
     int32_t f0 = qnote(note), dec = qm(morph, morph), fed = qmax(2 * h - QONE, 0), lvl;
@@ -188,7 +194,7 @@ static void kpunc_start(kpunc_t *k, int32_t note, int32_t tone, int32_t decay, i
     k->fm_amt = qm(qmin(2 * h, QONE), Q24(3.5));
     fed = qm(fed, fed);
     /* 1 - 1 / (0.008 (1 + 4 fed) SR) */
-    k->fm_dec = QONE - (int32_t)((1LL << 40) / (int32_t)(((int64_t)23121101 * (QONE + 4 * fed)) >> 24));   /* 352.8 = 0.008 SR, Q16; a 32-bit divisor: native divide */
+    k->fm_dec = QONE - (int32_t)((1LL << 40) / dm_trigger_mul24(23121101, QONE + 4 * fed));   /* 352.8 = 0.008 SR, Q16; a 32-bit divisor: native divide */
     k->body_dec = QONE - qratio(Q24(1.0 / (0.02 * FS)), -qm(dec, Q24(60.0)));
     k->tone_f = qmin(qratio(4 * f0, qm(timbre, Q24(108.0))), QONE);
     k->tlevel = timbre;

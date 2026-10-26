@@ -47,11 +47,24 @@ static uint32_t div_rem_next(uint32_t div, uint32_t rem)
     uint32_t den, num = div_num_den(div, &den);
     return (beat_samples() * num + rem) % den;
 }
+/* Manual swing displaces selected onsets; differences preserve the straight grid. */
+static uint32_t step_delay(const track_t *t,uint32_t period,uint32_t cnt)
+{
+    if(!song.seq.swing)return 0;
+    unsigned len=(unsigned)clamp(t->p[P_SLEN],1,NSTEP),i=cnt%len;
+    if(!(t->seq.swing[i>>3]&(1u<<(i&7))))return 0;
+    return period*(unsigned)(2*(clamp(song.seq.swing,50,80)-50))/100u;
+}
 /* the length of the step played as number cnt since PLAY: SWING (the track's + the global) makes the
  * even steps longer and the odd ones shorter, so every odd step starts late. Counted from PLAY, not from
  * the step index, so a pattern of any length (1, 3, ...) keeps the long / short pairs on the bar. */
 static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t cnt)
 {
+    if(song.seq.swing) {
+        uint32_t div=(uint32_t)t->p[P_SDIV];
+        uint32_t next=div_period(div,div_rem_next(div,t->seq_rem));
+        return period+step_delay(t,next,cnt+1u)-step_delay(t,period,cnt);
+    }
     int32_t sw = track_swing(t) * (int32_t)div_samples((uint32_t)t->p[P_SDIV]) / 250;
     return period + (uint32_t)(((cnt ^ t->seq_par) & 1u) ? -sw : sw);
 }
@@ -292,7 +305,9 @@ static uint32_t rec_hit(track_t *t, uint32_t vel)
 {
     uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u, idx = t->seq_idx % len;
     uint32_t period = div_period((uint32_t)t->p[P_SDIV], t->seq_rem);
-    if (t->seq_pos > step_samples(t, period, t->seq_cnt) / 2u) {
+    if(song.seq.swing&&t->seq_cnt==0xFFFFFFFFu&&t->seq_pos>=0x7FFFFFFFu) {
+        idx=0;t->rskip=1;t->rskip_idx=0;
+    } else if (t->seq_pos > step_samples(t, period, t->seq_cnt) / 2u) {
         idx = (idx + 1u) % len;
         t->rskip = 1;                               /* it sounds now: that step must not hit again */
         t->rskip_idx = (uint8_t)idx;
@@ -325,6 +340,9 @@ static struct { uint8_t key, trk, rec, last, first; } kz;
 static void mmarp_held_on(track_t *t, unsigned note);
 static void mmarp_held_off(track_t *t, unsigned note);
 static void mmarp_reset(void);
+static int mmarp_active(const track_t *t);
+static int mmarp_keep_gate(const track_t *t);
+static void mmarp_stop_manual(void);
 static uint8_t mmarp_nheld[NTRK];
 static uint8_t calibrated_key_owner[27], calibrated_key_note[27];
 
@@ -336,7 +354,7 @@ static __attribute__((noinline)) void keys_off(void)
 {
     track_t *t = &trk[kz.trk % NTRK];
     if (DMODELS[t->model % NMODELS].gate && t->gate_n == 0u &&
-        !(mmen_is_model(t->model) && mmarp_nheld[kz.trk % NTRK]))
+        !mmarp_keep_gate(t))
         acid_gate_off(t);
     kz.key = 0;
     kz.rec = 0;
@@ -400,7 +418,7 @@ static __attribute__((noinline)) void keys_on(uint32_t key)
     int legato = kz.key && kz.trk == song.sel;
     if (kz.key && !legato)
         keys_off();                                    /* mono over the keys: another track's held note ends */
-    if (m->mm >= 2u) {
+    if (m->mm >= 2u || (t->seq.arp_mode_order&7u)) {
         mmarp_held_on(t, (unsigned)(nt + 60));
         calibrated_key_owner[key] = (uint8_t)(song.sel + 1u);
         calibrated_key_note[key] = (uint8_t)(nt + 60);
@@ -409,6 +427,9 @@ static __attribute__((noinline)) void keys_on(uint32_t key)
         keys_rec(t, nt, legato);                       /* live record (spec §6) */
     else
         kz.rec = 0;
+    if((t->seq.arp_mode_order&7u)&&mmarp_active(t)){
+        t->key_nt=(int8_t)nt;kz.key=(uint8_t)(key+1u);kz.trk=song.sel;return;
+    }
     if (m->gate) {
         dvoice_t *v = &t->v[0];
         model_follow(t);
@@ -468,7 +489,7 @@ static void keyboard_block(void)
             track_t *t = &trk[calibrated_key_owner[key] - 1u];
             mmarp_held_off(t, calibrated_key_note[key]);
             calibrated_key_owner[key] = 0;
-            if (!mmarp_nheld[t - trk] && !t->gate_n) acid_gate_off(t);
+            if (!mmarp_keep_gate(t) && !t->gate_n) acid_gate_off(t);
         }
     if (kz.key && ((ch >> (kz.key - 1u)) & 1u) && !((cur >> (kz.key - 1u)) & 1u))
         keys_off();                                 /* KEYS: the sounding key let go, whoever has the keys now */
@@ -540,15 +561,15 @@ static void midi_block(void)
         }
         if ((st == 0x90u || st == 0x80u) && learn_note(d1, st == 0x90u && d2))
             continue;                               /* a learned note (any channel): its action, no drum */
-        if ((st == 0x90u || st == 0x80u) && ch < NTRK && mmen_is_model(trk[ch].model)) {
+        if ((st == 0x90u || st == 0x80u) && ch < NTRK && (mmen_is_model(trk[ch].model)||(trk[ch].seq.arp_mode_order&7u))) {
             track_t *t = &trk[ch];
             if (st == 0x90u && d2) {
                 mmarp_held_on(t, d1);
-                drum_play(t, d2, (int32_t)d1 - 60);
+                if(!(t->seq.arp_mode_order&7u)||!mmarp_active(t))drum_play(t, d2, (int32_t)d1 - 60);
                 t->gate_n = 0;
             } else {
                 mmarp_held_off(t, d1);
-                if (!mmarp_nheld[ch] && !t->gate_n) acid_gate_off(t);
+                if (!mmarp_keep_gate(t) && !t->gate_n) acid_gate_off(t);
             }
             continue;
         }
@@ -596,6 +617,7 @@ static void seq_start(void)
 static void seq_stop(void)
 {
     song.playing = 0;
+    mmarp_stop_manual();
     acid_gates_close();                             /* ACID: no note drones on */
     motion_end();                                   /* motion.c: the patch back */
     chain_stop();                                   /* song.c: the timing and REC back */
@@ -618,6 +640,12 @@ static void seq_tick(track_t *t, uint32_t n)
     if (!song.playing)
         return;
     t->seq_pos += n;
+    if(song.seq.swing&&t->seq_pos>=0x7FFFFFFFu) {
+        uint32_t delay=step_delay(t,div_period(div,t->seq_rem),0);
+        uint32_t elapsed=t->seq_pos-0x7FFFFFFFu;
+        if(elapsed<delay)return;
+        t->seq_pos-=delay;
+    }
     for (;;) {
         uint32_t cur_len = step_samples(t, div_period(div, t->seq_rem), t->seq_cnt);
         rat_due(t, cur_len);
@@ -626,7 +654,7 @@ static void seq_tick(track_t *t, uint32_t n)
         if (t->seq_pos >= 0x7FFFFFFFu) {            /* PLAY: step 0 (its remainder 0); following a clock, the advance
                                                      * into it counts (it began on the pulse), else the steps sit that
                                                      * far behind the clock's grid for good */
-            t->seq_pos = song.g[G_CLOCK] || chain.cut ? t->seq_pos - 0x7FFFFFFFu : 0;   /* (a song's row change: the
+            t->seq_pos = song.seq.swing || song.g[G_CLOCK] || chain.cut ? t->seq_pos - 0x7FFFFFFFu : 0;   /* (a song's row change: the
                                                      * block's rest after it, as the clock's) */
         } else {
             t->seq_pos -= cur_len;

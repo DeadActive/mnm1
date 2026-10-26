@@ -146,6 +146,65 @@ build and full host regression passed. Timing/ARP extensions, performance assign
 SONG rows remain outstanding. The 0.8 package is on the Mac with SHA-256
 `2c952b1fad5e664e1ebb9a3e71eef74eff8a43d54c3890640ec1f3ae98827398`;
 0.8 was installed from the Mac. Its console confirms CPU1 online with no timeouts;
-a clean hardware benchmark is in progress (the first run was discarded after panel input).
+the clean hardware benchmark stopped after case 183 (cal-gsin6-full), followed by a reboot.
+The device still answers. Heavy six-track calibrated workloads exceed the audio deadline;
+this is not a device-stable release claim. Crash count 1 reports PC 0x01C0C268, RETS
+0x01C0C278, vector 1, EMU 2. Its TIMER4-based timestamp wraps, so freshness is not yet
+known. An exact 0.8 rebuild reproduced the package SHA for address mapping. The host
+benchmark now saves incoming lines incrementally, retaining partial logs on timeout.
 The 0.9 package is also on the Mac, SHA-256
 `14c3e5ca6f58b5bd2ee202058451bc8c95feb2fcc3ec292c261794918a0c8927`.
+
+## Device diagnostics and 0.10 candidate
+
+Diagnostic-only packages 0.8.1 and 0.8.2 were installed from the Mac with owner
+permission. They are not releases: both select the final four full calibrated
+stress cases; 0.8.1 adds status/crash reporting, and 0.8.2 also enables normal
+voice shedding and continuous rendering without benchmark rest halves.
+
+All four completed without reboot or an increase in crash count. CPU1 executed
+13760 jobs in 0.8.1, with maximum job 1281 us, maximum wait 8 us and at least
+2364 bytes free on its user stack (supervisor stack untouched). Six full-effect
+tracks required roughly 13–16.5 ms per 5.804 ms audio half. With voice shedding,
+0.8.2 settled near 6.9 ms: delay tails and modulation still exceed the deadline.
+The reported shed count is attempts, not proof that a voice existed each time.
+Logs are in build/bench/0.8.0/diag1.log and diag2.log. The earlier full-run reboot
+has not been reproduced; its cause remains unresolved. No sample migration ran.
+
+0.10 adds 33 bytes of per-track sequencer options and four pattern bytes. MNM6
+stores descriptor-aware sound parameters as bytes, leaving room for these options
+within the legacy flash payload. Expanded pattern v3 is 2906 bytes; old v1/v2
+records keep their original 2704-byte reader. New UI pages preserve the existing
+families and controls. Initial masked swing, fractional periods, repeated SONG
+rows, held/latching/accumulating ARP, trigger switches and transpose have focused
+host sanitizer tests. Full regression, target build and device proof are pending.
+
+The exact LFO-control cache optimization preserves 20000 differential blocks and
+2000 randomized cache/lookup cases. Static RAM is unchanged; it adds a 144-byte
+local table. Host instruction cost of LFO preparation fell from 1261 to 256 per
+sample. Diagnostic 0.10.1 repeated the continuous-render/normal-shedding test:
+all four cases completed, with six voice cuts per case, roughly 5.08 ms average
+and 5.178 ms worst after warmup, zero measured late halves. Initial overload still
+reached 17.427 ms before shedding; all six held voices were cut in these extreme
+cases. This proves recovery and tail budget, not six-track unrestricted playback.
+CPU1 completed 13840 jobs, maximum job/wait 1295/505 us, no timeout, minimum user
+stack headroom 2276 bytes. Boot count and crash record stayed unchanged. Full log:
+build/bench/0.8.0/diag3-optimized.log.
+
+The target 0.10 candidate builds within 97440/98304 bytes data/BSS and
+333252/344064 bytes pool. Trigger setup for two legacy percussion machines is
+isolated from unsafe wide-product scheduling; numeric fingerprints are unchanged.
+The target checker reports 774 wide products, 275 inherited warnings and zero new
+warnings. Inherited warnings remain an existing limitation, not a safety proof.
+
+The 0.10 host regression is complete: initial groups in /tmp/mnm010-suite3.log,
+updated UI fixtures in /tmp/mnm010-ui-final.log, remaining groups in
+/tmp/mnm010-suite-tail.log and /tmp/mnm010-suite-rest.log, and the final boot/fidelity
+checks in /tmp/mnm010-suite-last.log (ALL DRUM HOST TESTS PASSED). Fixture updates
+account for compact byte parameters and twelve division choices; the UI page
+coverage mask was widened to 64 bits to avoid an invalid shift on added pages.
+The simulator build and glue tests pass. Standard target image is 545432 bytes;
+Mac package SHA-256 is 3705bafb2a0938a92d52b0bcdcc6d94e4dcce0966a79eb97e7f11f6bd622e44b.
+It is installed on FM-1; the complete 187-case hardware run is in progress with
+incremental output at build/bench/0.10.0/device.log. Public site publication awaits
+that run and an archive built from the committed source. 0.11 and 1.0 remain.

@@ -176,6 +176,21 @@ static inline int mml_control(const mml_state *s, unsigned t, unsigned l, unsign
     int32_t q=(int32_t)raw*256+mml_delta(s,t,42+l*8+p);
     return q<0 ? 0 : q>127*256 ? 127 : q>>8;
 }
+/* Resolve the preceding block once, rather than scanning its sparse list for
+ * each of seven controls of every LFO. Outputs targeting synth/FX parameters
+ * cannot affect this table. Preserve mml_delta's first-match semantics. */
+static inline void mml_controls(const mml_state *s,const uint8_t raw[6][3][8],
+                                uint8_t effective[6][3][8])
+{
+    memcpy(effective,raw,MML_TRACKS*MML_LFOS*8u);
+    for(unsigned i=s->count;i>0;--i){
+        const mml_mod *m=&s->mod[i-1];
+        if(m->track>=MML_TRACKS||m->param<42||m->param>=66)continue;
+        unsigned l=(m->param-42)/8,p=(m->param-42)%8;
+        int32_t q=(int32_t)raw[m->track][l][p]*256+m->value;
+        effective[m->track][l][p]=(uint8_t)(q<0?0:q>127*256?127:q>>8);
+    }
+}
 /* All tracks must be evaluated together, preserving one-block cross modulation.
  * bpm10 is tempo in tenths of BPM (1200 = 120 BPM); unsigned arithmetic wraps
  * exactly like the donor at extreme speed/multiplier/tempo. view_track selects
@@ -187,14 +202,16 @@ static inline void mml_block(mml_state *s, const uint8_t raw[6][3][8],
 {
     mml_mod next[MML_MAX_MOD];
     unsigned count=0;
+    uint8_t effective[MML_TRACKS][MML_LFOS][8];
+    mml_controls(s,raw,effective);
     for(unsigned t=0;t<MML_TRACKS;++t) for(unsigned l=0;l<MML_LFOS;++l) {
         mml_voice *v=&s->voice[t][l];
-        int dest=mml_control(s,t,l,MML_DEST,raw[t][l][MML_DEST]);
+        int dest=effective[t][l][MML_DEST];
         if(dest==0 || dest>MML_PARAMS) { v->value=0; continue; }
-        unsigned wave=(mml_control(s,t,l,MML_WAVE,raw[t][l][MML_WAVE])*7u)>>7;
-        unsigned trig=(mml_control(s,t,l,MML_TRIG,raw[t][l][MML_TRIG])*5u)>>7;
-        unsigned mult=1u<<((mml_control(s,t,l,MML_MULT,raw[t][l][MML_MULT])*8u)>>7);
-        uint32_t inc=(uint32_t)mml_control(s,t,l,MML_SPEED,raw[t][l][MML_SPEED])*mult*bpm10*10u;
+        unsigned wave=(effective[t][l][MML_WAVE]*7u)>>7;
+        unsigned trig=(effective[t][l][MML_TRIG]*5u)>>7;
+        unsigned mult=1u<<((effective[t][l][MML_MULT]*8u)>>7);
+        uint32_t inc=(uint32_t)effective[t][l][MML_SPEED]*mult*bpm10*10u;
         uint32_t before=v->phase;
         if(!v->done) {
             v->phase+=inc;
@@ -206,11 +223,11 @@ static inline void mml_block(mml_state *s, const uint8_t raw[6][3][8],
                 if(trig==4 && z>=0x80000000u && a<0x80000000u) {v->done=1;v->phase=start+0x80000000u;}
             }
         }
-        int depth=mml_control(s,t,l,MML_DEPTH,raw[t][l][MML_DEPTH])-64;
+        int depth=effective[t][l][MML_DEPTH]-64;
         if(!depth && (int)t!=view_track) {v->value=0;continue;}
         v->value=trig==2 ? v->hold : mml_shape(wave,v->phase,v->random);
         if(depth) {
-            unsigned target=(mml_control(s,t,l,MML_TARGET,raw[t][l][MML_TARGET])*6u)>>7;
+            unsigned target=(effective[t][l][MML_TARGET]*6u)>>7;
             unsigned param=mml_destination[dest], i=0;
             int32_t value=(v->value*depth)>>6;
             for(;i<count;++i) if(next[i].track==target && next[i].param==param) break;

@@ -31,12 +31,13 @@ static int mmlib_error(int rc)
 static int mmlib_read(unsigned id,void *out,unsigned bytes)
 {
     int n=mms_read_object(&mmlib_store,id,out,bytes);
-    if(n==(int)bytes&&id<MMR_PATTERNS&&bytes==sizeof(mmr_pattern_t)){
+    if(id<MMR_PATTERNS&&bytes==sizeof(mmr_pattern_t)&&n>0){
         mmr_pattern_t *p=out;
-        if(p->version==1){
-            for(unsigned k=0;k<NTRK;k++)for(unsigned i=0;i<NSTEP;i++)p->step[k][i].rsv=0;
-            p->version=MMR_PATTERN_VERSION;
-        }
+        if(n==MMR_PATTERN_OLD_SIZE&&(p->version==1||p->version==2)){
+            if(p->version==1)for(unsigned k=0;k<NTRK;k++)for(unsigned i=0;i<NSTEP;i++)p->step[k][i].rsv=0;
+            for(unsigned k=0;k<NTRK;k++)seq_options_default(&p->seq[k]);
+            p->options=(pattern_options_t){0};p->version=MMR_PATTERN_VERSION;n=(int)bytes;
+        }else if(n!=(int)bytes||p->version!=MMR_PATTERN_VERSION)return MMS_CORRUPT;
     }
     return n==(int)bytes?0:n<0?mmlib_error(n):MMS_CORRUPT;
 }
@@ -274,10 +275,10 @@ static int mmlib_project_kit(mmr_kit_t *kit,const project_t *p)
     for(unsigned t=0;t<NTRK;++t){
         mmr_sound_t *s=&kit->sound[t];s->used=1;s->preset_ref=p->pre[t];s->edited=p->pre_ed[t];
         for(unsigned id=0;id<P_COUNT;++id)if(mmr_sound_param(id)){
-            int v=id<P_NSTORED?p->t[t].p[id]:proj_xp_get(&p->t[t],id);
+            int v=proj_value(&p->t[t],id);
             if(v< -128||v>127)return MMS_CORRUPT;s->p[id]=(uint8_t)v;
         }
-        for(unsigned j=0;j<MMR_KIT_N;++j)kit->config[t][j]=p->t[t].p[MMR_KIT_PARAMS[j]];
+        for(unsigned j=0;j<MMR_KIT_N;++j)kit->config[t][j]=proj_value(&p->t[t],MMR_KIT_PARAMS[j]);
     }
     return mmr_kit_valid(kit)?0:MMS_CORRUPT;
 }
@@ -285,10 +286,11 @@ static int mmlib_project_pattern(mmr_pattern_t *out,const project_t *p,unsigned 
 {
     memset(out,0,sizeof *out);out->version=MMR_PATTERN_VERSION;out->used=1;out->kit=(uint8_t)kit;out->selected=p->sel;
     memcpy(out->name,p->name,sizeof out->name);memcpy(out->g,p->g,sizeof out->g);
-    out->motion=p->motion;out->song=p->song;
+    out->motion=p->motion;out->song=p->song;out->options=p->options;
+    memcpy(out->seq,p->seq,sizeof out->seq);
     for(unsigned t=0;t<NTRK;++t){
         memcpy(out->step[t],p->t[t].step,sizeof out->step[t]);
-        for(unsigned j=0;j<MMR_PATTERN_N;++j)out->timing[t][j]=p->t[t].p[MMR_PATTERN_PARAMS[j]];
+        for(unsigned j=0;j<MMR_PATTERN_N;++j)out->timing[t][j]=proj_value(&p->t[t],MMR_PATTERN_PARAMS[j]);
     }
     return mmr_pattern_valid(out)?0:MMS_CORRUPT;
 }

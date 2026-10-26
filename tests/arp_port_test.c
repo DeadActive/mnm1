@@ -23,6 +23,7 @@ static const dmodel_t model={.gate=dummy_gate};
 static const dmodel_t *trk_model(const track_t *t){(void)t;return &model;}
 static int dv_gate_open(track_t *t,dvoice_t *v){(void)t;(void)v;return open_gate;}
 static void drum_play(track_t *t,uint32_t vel,int32_t note){assert(vel==100);t->nt=note;event_note=note+60;event_count++;t->gate_n=999;}
+static void drum_play_masked(track_t *t,uint32_t vel,int32_t note,unsigned flags){assert(!flags);drum_play(t,vel,note);}
 static uint32_t beat_samples(void){return 2646000u/(unsigned)song.g[G_BPM];}
 static uint32_t div_period(uint32_t div,uint32_t rem){(void)rem;return beat_samples()/(1u<<(div%4));}
 #include "../firmware/src/arp.c"

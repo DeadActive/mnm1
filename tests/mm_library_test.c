@@ -94,7 +94,7 @@ static void boot_format_migrate(void)
         assert(library_load_pattern(slot)==0);const project_t *p=&projects_before[slot];
         assert(song.sel==p->sel&&!memcmp(song.g,p->g,sizeof song.g));
         for(unsigned k=0;k<NTRK;++k){
-            assert(!memcmp(trk[k].p,p->t[k].p,sizeof trk[k].p));
+            for(unsigned id=0;id<P_COUNT;id++)assert(trk[k].p[id]==proj_value(&p->t[k],id));
             assert(!memcmp(trk[k].step,p->t[k].step,sizeof trk[k].step));
             assert(preset_rec_enc(trk[k].pre)==p->pre[k]&&trk[k].pre_ed==p->pre_ed[k]);
         }

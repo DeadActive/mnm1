@@ -3,6 +3,7 @@
  * Drum machine fork: 2026 DEADACTIVE */
 /* Drum model building blocks, all fixed point. Envelopes are Q24 (ENV1 = full) and fall by a
  * per-sample factor from DECAY_K (Q16; index 0..127 = 5 ms .. 4 s to -60 dB, exponential). */
+#include "seq_transpose.h"
 #define ENV1 (1 << 24)
 #define ENV_END (1 << 10)                    /* -84 dB: the voice ends */
 #define HZ(f) ((uint32_t)((f) * 97391.548))  /* phase increment of f Hz (2^32 / 44100); constants only */
@@ -32,7 +33,7 @@ static uint32_t inc_tune(uint32_t inc, int32_t semis)
 }
 
 /* TUNE as the models read it: the knob plus the playing step's note offset (a drum: +-24 semitones) */
-static inline int32_t dm_tune(const struct track *t) { return t->p[P_E0] + clamp(t->nt, -24, 24); }
+static inline int32_t dm_tune(const struct track *t) { return t->p[P_E0] + clamp(seq_note(t)-60, -24, 24); }
 
 /* Simper SVF as tsvf (dsp.c), with the band-pass and high-pass outputs */
 static void dsvf_coef(dsvf_t *c, int32_t cut, int32_t reso)       /* cut 0..127 << 8, reso 0..127 */

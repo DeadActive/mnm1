@@ -486,7 +486,7 @@ static void test_ranges(void)
     send_cc(83, 127);
     check("DIV: 127 -> its last (1/32)", trk[0].p[div] == 3);
     send_cc(83, 64);
-    check("DIV: 64 -> the middle of the shown order (1/8)", trk[0].p[div] == 1);
+    check("DIV: 64 -> the middle of the expanded order (8T)", trk[0].p[div] == 4);
     send_cc(84, 127);
     check("LEN: 127 -> 64", trk[0].p[P_SLEN] == 64);
     send_cc(84, 0);

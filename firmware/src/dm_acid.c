@@ -51,7 +51,7 @@ static uint32_t acid_inc(int32_t p16)                   /* pitch in 1/16 semiton
 }
 static int32_t acid_pitch(const track_t *t)             /* the target: C4 + the note + TUNE, 1/16 semitone */
 {
-    return (60 + t->nt + t->p[P_E0]) * 16;
+    return (seq_note(t) + t->p[P_E0]) * 16;
 }
 static uint32_t acid_decay(int32_t p)                   /* DECAY 0..127 -> DECAY_K 34..121: 30 ms .. 3 s to -60 dB */
 {

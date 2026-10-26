@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MNM3 flash migration and MNM4 round-trip through the real project/storage code. */
+ * MNM3/4/5 migration and compact MNM6 through the real project/storage code. */
 #define FELUCCA_FLASH 1
 #include <stdint.h>
 static uint8_t hflash[0x100000];
@@ -9,6 +9,8 @@ static uint8_t hflash[0x100000];
 
 static mnm_project_v3_t legacy;
 static project_t expected;
+static mnm_project_v5_t recent;
+static union { project_t q; uint8_t bytes[3840]; } decode_buf;
 
 static void fixture(void)
 {
@@ -22,6 +24,9 @@ static void fixture(void)
     for (k = 0; k < NTRK; k++) {
         for (i = 0; i < P_COUNT; i++) trk[k].p[i] = TP[i].def;
         drum_set_model(&trk[k], DM_MMSAW);
+        seq_options_default(&trk[k].seq);
+        trk[k].p[P_PAN] = -23;
+        trk[k].p[P_E7] = -1;
         trk[k].p[P_NOTE] = (int16_t)(k * 2);
         trk[k].pre = k == 1 ? PRE_NFACT + 7u : PRE_NONE;
         trk[k].pre_ed = k & 1u;
@@ -43,6 +48,7 @@ static void fixture(void)
     chain.cfg.row[1] = (chain_row_t){3, 2};
     name_set(chain.name, "OLD SONG");
     song.sel = 4;
+    memset(&song.seq,0,sizeof song.seq);
     project_save(0);
     expected = proj_slot[0];
     memset(&legacy, 0, sizeof legacy);
@@ -50,7 +56,7 @@ static void fixture(void)
     memcpy(legacy.g, expected.g, sizeof legacy.g);
     legacy.sel = expected.sel;
     for (k = 0; k < NTRK; k++) {
-        memcpy(legacy.t[k].p, expected.t[k].p, sizeof legacy.t[k].p);
+        for(i=0;i<PROJ_V3_PARAMS;i++)legacy.t[k].p[i]=proj_value(&expected.t[k],i);
         memcpy(legacy.t[k].step, expected.t[k].step, sizeof legacy.t[k].step);
     }
     legacy.motion = expected.motion; legacy.song = expected.song;
@@ -61,26 +67,42 @@ static void fixture(void)
 }
 static void test_decode(void)
 {
-    project_t q;
-    uint32_t i;
-    assert(sizeof legacy == 3624u && sizeof q == 3828u + (G_COUNT - PROJ_V3_GLOBALS) * 2u);
-    memset(&q, 0xA5, sizeof q);
-    memcpy(&q, &legacy, sizeof legacy);
-    assert(proj_decode(&q, sizeof legacy));
-    assert(!memcmp(&q, &expected, sizeof q));
-    assert(proj_decode(&q, sizeof q));
-    q.t[3].p[P_PAN] ^= 1;
-    assert(!proj_decode(&q, sizeof q));
-    for (i = 0; i < sizeof legacy; i++) {
-        memcpy(&q, &legacy, sizeof legacy);
-        ((uint8_t *)&q)[i] ^= 1u;
-        assert(!proj_decode(&q, sizeof legacy));
+    project_t *q=&decode_buf.q;
+    assert(sizeof legacy==3624u && sizeof recent==3836u && sizeof *q<=3840u);
+    memcpy(q,&legacy,sizeof legacy);
+    assert(proj_decode(q,sizeof legacy));
+    assert(!memcmp(q,&expected,sizeof *q));
+    assert(proj_decode(q,sizeof *q));
+    q->t[3].p[P_PAN]^=1;assert(!proj_decode(q,sizeof *q));
+    for(unsigned i=0;i<sizeof legacy;i++) {
+        memcpy(q,&legacy,sizeof legacy);decode_buf.bytes[i]^=1;
+        assert(!proj_decode(q,sizeof legacy));
     }
-    memcpy(&q, &legacy, sizeof legacy);
-    assert(!proj_decode(&q, sizeof legacy - 1u));
-    assert(!proj_decode(&q, sizeof legacy + 1u));
-    assert(!proj_decode(&q, sizeof q));
+    memcpy(q,&legacy,sizeof legacy);
+    assert(!proj_decode(q,sizeof legacy-1));assert(!proj_decode(q,sizeof legacy+1));
+    memset(&recent,0,sizeof recent);recent.magic=PROJ_V5_MAGIC;recent.size=sizeof recent;
+    memcpy(recent.g,expected.g,sizeof recent.g);recent.sel=expected.sel;
+    for(unsigned k=0;k<NTRK;k++) {
+        for(unsigned i=0;i<97;i++)recent.t[k].p[i]=proj_value(&expected.t[k],i);
+        memcpy(recent.t[k].step,expected.t[k].step,sizeof recent.t[k].step);
+        recent.t[k].step[0].rsv=ST_NOAMP|ST_NOLFO;
+    }
+    recent.motion=expected.motion;recent.song=expected.song;
+    memcpy(recent.name,expected.name,sizeof recent.name);
+    memcpy(recent.pre,expected.pre,sizeof recent.pre);memcpy(recent.pre_ed,expected.pre_ed,sizeof recent.pre_ed);
+    for(unsigned version=4;version<=5;version++) {
+        recent.magic=version==4?PROJ_V4_MAGIC:PROJ_V5_MAGIC;
+        recent.sum=proj_hash(&recent,sizeof recent-4);
+        memcpy(q,&recent,sizeof recent);assert(proj_decode(q,sizeof recent));
+        for(unsigned k=0;k<NTRK;k++) {
+            assert(proj_value(&q->t[k],P_PAN)==-23);
+            assert(proj_value(&q->t[k],P_E7)==-1);
+            assert(q->t[k].step[0].rsv==(version==5?(ST_NOAMP|ST_NOLFO):0));
+            assert(!memcmp(&q->seq[k],&expected.seq[k],sizeof q->seq[k]));
+        }
+    }
 }
+
 static void test_flash(void)
 {
     uint32_t k;
@@ -96,19 +118,31 @@ static void test_flash(void)
     memset(trk[0].p, 0, sizeof trk[0].p);
     assert(proj_load(2, 0));
     for (k = 0; k < NTRK; k++) {
-        assert(!memcmp(trk[k].p, expected.t[k].p, sizeof trk[k].p));
+        for(unsigned i=0;i<P_COUNT;i++)assert(trk[k].p[i]==proj_value(&expected.t[k],i));
         assert(!memcmp(trk[k].step, expected.t[k].step, sizeof trk[k].step));
     }
     assert(!memcmp(&mo.s, &legacy.motion, sizeof mo.s));
     assert(!memcmp(&chain.cfg, &legacy.song, sizeof chain.cfg));
     assert(!strcmp(chain.name, "OLD SONG") && song.sel == 4);
     assert(trk[1].pre == PRE_NFACT + 7u && trk[1].pre_ed == 1);
+    trk[2].seq.arp_offset[15]=-17;trk[2].seq.arp_ojmp=5;
+    trk[2].seq.swing[7]=3;song.seq.swing=67;song.seq.transpose=-12;
     project_save(2);
     assert(st_load(OBJ_PROJECT0 + 2u, &saved, sizeof saved) == sizeof saved);
     assert(proj_ok(&saved));
+    assert(saved.seq[2].arp_offset[15]==-17 && saved.seq[2].arp_ojmp==5);
+    assert(saved.options.swing==67 && saved.options.transpose==-12);
     memset(&proj_slot[2], 0, sizeof proj_slot[2]);
     proj_fetch(2);
     assert(!memcmp(&saved, &proj_slot[2], sizeof saved));
+    assert(proj_load(2,0));assert(trk[2].seq.arp_offset[15]==-17&&song.seq.swing==67);
+    /* Re-fetch an oversized legacy record between compact neighbors, last slot too. */
+    for(k=0;k<4;k++) {
+        assert(!st_save(OBJ_PROJECT0+k,&recent,sizeof recent));
+        project_t neighbors[4];memcpy(neighbors,proj_slot,sizeof neighbors);
+        proj_fetch(k);assert(proj_ok(&proj_slot[k]));
+        for(unsigned j=0;j<4;j++)if(j!=k)assert(!memcmp(&neighbors[j],&proj_slot[j],sizeof saved));
+    }
     legacy.sum ^= 1;
     assert(!st_save(OBJ_PROJECT0, &legacy, sizeof legacy));
     proj_fetch(0);
@@ -118,9 +152,34 @@ static void test_flash(void)
     proj_fetch(0);
     assert(!proj_ok(&proj_slot[0]));
 }
+static void test_values_and_validation(void)
+{
+    proj_trk_t t;memset(&t,0,sizeof t);
+    for(unsigned m=0;m<NMODELS;m++) {
+        t.p[P_MODEL]=(uint8_t)m;
+        for(unsigned id=0;id<P_COUNT;id++) {
+            const param_desc_t *d=proj_desc(m,id);
+            assert(d->min>=-128 && d->max<=127);
+            if(id==P_MODEL)continue;
+            t.p[id]=proj_byte(m,id,d->min);assert(proj_value(&t,id)==d->min);
+            t.p[id]=proj_byte(m,id,d->max);assert(proj_value(&t,id)==d->max);
+        }
+    }
+    project_t *q=&decode_buf.q;*q=expected;
+    q->seq[0].arp_len=0;q->sum=proj_sum(q);assert(!proj_decode(q,sizeof *q));
+    *q=expected;q->options.swing=49;q->sum=proj_sum(q);assert(!proj_decode(q,sizeof *q));
+    /* Source models use signed common controls even where legacy descriptors differ. */
+    recent.t[1].p[P_MODEL]=DM_M2_GSIN;recent.t[1].p[P_PAN]=-64;
+    recent.t[1].p[P_MVOL]=127;recent.t[1].p[P_E7]=64;
+    recent.sum=proj_hash(&recent,sizeof recent-4);memcpy(q,&recent,sizeof recent);
+    assert(proj_decode(q,sizeof recent));
+    assert(proj_value(&q->t[1],P_PAN)==-64 && proj_value(&q->t[1],P_MVOL)==127);
+    assert(proj_value(&q->t[1],P_E7)==64);
+    printf("MNM6 %zu bytes; project/chain union %zu bytes\n",sizeof(project_t),sizeof proj_memory);
+}
 int main(void)
 {
-    fixture(); test_decode(); test_flash();
+    fixture(); test_decode(); test_flash();test_values_and_validation();
     puts("project_migration_test: all passed");
     return 0;
 }

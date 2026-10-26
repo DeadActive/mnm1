@@ -18,6 +18,8 @@ typedef struct { uint8_t count, loop, rsv[2]; chain_row_t row[CHAIN_ROWS]; } cha
 typedef char chain_config_size[sizeof(chain_config_t) == 36u ? 1 : -1];
 typedef struct {                           /* a slot as its rows play it */
     const step_t *step[NTRK];
+    const seq_options_t *seq;
+    const pattern_options_t *options;
     const motion_store_t *m;               /* its motion (MOTION_NONE: none, or a broken one) */
     int16_t timing[NTRK][4];               /* CHAIN_TIMING, inside their ranges */
     uint8_t model[NTRK];                   /* its models: another model now = its P_E events skipped (motion.c) */
@@ -30,10 +32,13 @@ static struct {
     char name[NAME_LEN + 1u];              /* the project's name, "" = none */
     uint8_t from;                          /* the slot loaded or saved last + 1, 0 = none (its rename renames this) */
     chain_src_t src[8];                    /* the slots (chain_prepare) */
+    seq_options_t keep_seq[NTRK];
+    pattern_options_t keep_options;
     int16_t keep[NTRK][4];                 /* the timing before the song (STOP puts it back) */
     volatile uint8_t armed, running;       /* PLAY on SONG: armed until seq_start takes it; running */
     uint8_t row, left, ref, slot;          /* the row playing, its repeats left (this one too), its longest track, slot */
     uint8_t rec, cut;                      /* REC before the song; a row changed this block */
+    uint32_t swing_end_count;             /* last reference step whose nominal end counted a repeat */
     uint16_t b24;                          /* the song's time at the row playing: 1/24 beats since PLAY, mod 768 */
 } chain;
 
@@ -86,12 +91,15 @@ static void chain_apply(uint32_t x)                /* row chain.row starts x sam
     uint32_t k, j, best = 0, bn = 0, bd = 1;
     chain.slot = chain.cfg.row[chain.row].slot;
     chain.left = chain.cfg.row[chain.row].repeat;
+    chain.swing_end_count=0xFFFFFFFFu;
     s = &chain.src[chain.slot];
     mo.src = s->m ? s->m : &MOTION_NONE;
     mo.model = s->model;
+    song.seq=s->options?*s->options:(pattern_options_t){0};
     for (k = 0; k < NTRK; k++) {
         track_t *t = &trk[k];
         uint32_t n, d;
+        if(s->seq)t->seq=s->seq[k];else seq_options_default(&t->seq);
         motion_restore(k);                         /* the last row's motion off (motion.c) */
         for (j = 0; j < 4u; j++)
             t->p[CHAIN_TIMING[j]] = s->timing[k][j];
@@ -120,6 +128,8 @@ static void chain_start(void)                      /* seq_start: an armed song f
     if (!chain.armed && !chain.running)
         return;
     if (!chain.running) {
+        chain.keep_options=song.seq;
+        for(k=0;k<NTRK;k++)chain.keep_seq[k]=trk[k].seq;
         for (k = 0; k < NTRK; k++)
             for (j = 0; j < 4u; j++)
                 chain.keep[k][j] = trk[k].p[CHAIN_TIMING[j]];
@@ -139,6 +149,8 @@ static void chain_stop(void)                       /* seq_stop: the timing and R
     if (!chain.running)
         return;
     chain.running = 0;
+    song.seq=chain.keep_options;
+    for(k=0;k<NTRK;k++)trk[k].seq=chain.keep_seq[k];
     for (k = 0; k < NTRK; k++)
         for (j = 0; j < 4u; j++)
             trk[k].p[CHAIN_TIMING[j]] = chain.keep[k][j];
@@ -154,9 +166,16 @@ static void chain_tick(uint32_t n)
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), cur;
     if (!chain.running || t->seq_pos >= 0x7FFFFFFFu || t->seq_idx + 1u != len)
         return;
-    cur = step_samples(t, div_period((uint32_t)t->p[P_SDIV], t->seq_rem), t->seq_cnt);
+    if(song.seq.swing) {
+        if(chain.swing_end_count==t->seq_cnt)return;
+        uint32_t period=div_period((uint32_t)t->p[P_SDIV],t->seq_rem);
+        /* The row ends on the unswung grid, before a delayed next step zero.
+         * Repeats leave the track clock alone so its full interval still plays. */
+        cur=period-step_delay(t,period,t->seq_cnt);
+    } else cur = step_samples(t, div_period((uint32_t)t->p[P_SDIV], t->seq_rem), t->seq_cnt);
     if (t->seq_pos + n < cur)
         return;
+    if(song.seq.swing)chain.swing_end_count=t->seq_cnt;
     {
         uint32_t den;                              /* the song's time: + the reference's pattern */
         chain.b24 = (uint16_t)((chain.b24 + len * step24((uint32_t)t->p[P_SDIV], &den)) % B24_WRAP);

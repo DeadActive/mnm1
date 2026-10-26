@@ -218,7 +218,7 @@ static void fxring_render(track_t *t, dvoice_t *v, int32_t *out, uint32_t n)
     mm_t *m = &v->ms.mm;
     if (fx_scratch(t, v))
         return;
-    m->tgt = (60 + t->nt) * 16;                          /* the note (GATE ON: drum_play keeps the voice) */
+    m->tgt = seq_note(t) * 16;                          /* the note (GATE ON: drum_play keeps the voice) */
     inc = mm_inc(mm_pitch(t, v, 0) - t->p[P_E0] * 16 + clamp(p[3], -24, 24) * 16);
     for (i = 0; i < n; i++) {
         int32_t x = fx_inp(p, fx_in_buf[i]), sn = sine_i(m->ph[0]), car = sn + fx_mul(osc_tri(m->ph[0]) - sn, wv);

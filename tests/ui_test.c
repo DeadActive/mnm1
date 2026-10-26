@@ -2093,7 +2093,9 @@ static int no_beat_layer(void)
 }
 static void test_backlight_beats_everywhere(void)
 {
-    uint32_t i, kys, arm, n_steps = 0, n_other = 0, seq_seen = 0, mix_seen = 0, ok_steps = 1, ok_other = 1;
+    uint32_t i, kys, arm, n_steps = 0, n_other = 0, seq_pages = 0, mix_seen = 0, ok_steps = 1, ok_other = 1;
+    uint64_t seq_seen = 0;
+    _Static_assert(NPAGES<=64,"page coverage mask capacity");
     char bad[160] = "";
     ui_host_init();
     for (i = 0; i < NSTEP; i++)
@@ -2126,7 +2128,7 @@ static void test_backlight_beats_everywhere(void)
                     }
                     ok_steps &= (uint32_t)ok;
                     n_steps++;
-                    seq_seen |= cur_page()->fam == FAM_SEQ ? 1u << (ui.page & 31u) : 0u;
+                    seq_seen |= cur_page()->fam == FAM_SEQ ? UINT64_C(1) << ui.page : 0u;
                     mix_seen |= cur_page()->scope == SC_MIX;
                 } else {
                     if (!no_beat_layer() && str_len(bad) < 120u) {
@@ -2138,13 +2140,15 @@ static void test_backlight_beats_everywhere(void)
                 }
             }
     for (i = 0; i < NPAGES; i++)                     /* every SEQ page among them */
-        if (PAGES[i].fam == FAM_SEQ)
+        if (PAGES[i].fam == FAM_SEQ) {
             ok_steps &= (seq_seen >> i) & 1u;
+            seq_pages++;
+        }
     if (!ok_steps || !ok_other)
         printf("      (beats wrong on:%s)\n", bad);
     check("BACKLIGHT ON, every page and the HOME screen, KEYS off / on, armed or not: where the keys are steps (every "
           "SEQ page, TRACKS unarmed) on steps full, the unlit beats 1 5 9 13 at 25 % in bank 1 and bank 2, the rest 5 %",
-          ok_steps && mix_seen && n_steps == 18u);   /* 4 SEQ pages x armed / not x KEYS off / on (MNM-1: the SEQ pages
+          ok_steps && mix_seen && n_steps == seq_pages * 4u + 2u);   /* 4 SEQ pages x armed / not x KEYS off / on (MNM-1: the SEQ pages
                                                        * keep their steps under KEYS), TRACKS unarmed x KEYS off / on */
     check("BACKLIGHT ON: where the keys are not steps (EDIT FX LFO GLOBAL SAVE GRIDS COMP, the HOME screen, KEYS, "
           "TRACKS armed) no key at 25 %", ok_other && n_other > 0u);
@@ -3518,7 +3522,7 @@ static void test_project_rejects(void)
     project_save(0);
     proj_slot[0].t[1].p[P_MODEL] = NMODELS + 17;      /* invalid model remains bounded */
     proj_slot[0].t[3].p[P_MODEL] = DM_MMSAW;          /* legacy parameter laws */
-    proj_slot[0].t[3].p[P_E1] = 30000;
+    proj_slot[0].t[3].p[P_E1] = 255;
     ((uint8_t *)&proj_slot[0].t[3].step[0])[0] = 0xC1u;   /* on + both reserved bits */
     proj_slot[0].t[3].step[1].cond = 200;
     ((uint8_t *)&proj_slot[0].t[3].step[1])[0] = 0x30u;   /* rat 3 */
@@ -3527,10 +3531,11 @@ static void test_project_rejects(void)
     proj_slot[0].g[G_CSRC] = 77;
     proj_slot[0].t[3].p[P_DUCK] = 5;
     proj_slot[0].t[3].p[P_LFO1 + LF_DEST] = 99;
-    proj_slot[0].t[3].p[P_LFO1 + LF_WAVE] = -4;
-    proj_slot[0].t[3].p[P_FWDTH] = 500;
-    proj_slot[0].t[3].p[P_SRR] = 999;
-    proj_slot[0].t[3].p[P_ARPM] = -3;
+    proj_slot[0].t[3].p[P_LFO1 + LF_WAVE] = 255;
+    proj_slot[0].t[3].p[P_FWDTH] = 255;
+    proj_slot[0].t[3].p[P_SRR] = 255;
+    proj_slot[0].t[3].p[P_ARPM] = 255;
+    proj_slot[0].t[3].p[P_PAN] = 128;
     proj_slot[0].sum = proj_sum(&proj_slot[0]);
     project_load(0);
     check("project: out-of-range values are clamped on load",
@@ -3538,8 +3543,8 @@ static void test_project_rejects(void)
               trk[3].step[0].on == 1 && trk[3].step[1].cond == COND_MAX && trk[3].step[1].rat == 3 &&
               trk[3].p[P_SRC] == 3 && song.g[G_GLEN1] == 1 &&
               song.g[G_CSRC] == GP[G_CSRC].max && trk[3].p[P_DUCK] == 1 &&
-              trk[3].p[P_LFO1 + LF_DEST] == TP[P_LFO1 + LF_DEST].max && trk[3].p[P_LFO1 + LF_WAVE] == 0 &&
-              trk[3].p[P_FWDTH] == 127 && trk[3].p[P_SRR] == 127 && trk[3].p[P_ARPM] == 0);
+              trk[3].p[P_LFO1 + LF_DEST] == TP[P_LFO1 + LF_DEST].max && trk[3].p[P_LFO1 + LF_WAVE] == TP[P_LFO1 + LF_WAVE].max &&
+              trk[3].p[P_FWDTH] == 127 && trk[3].p[P_SRR] == 127 && trk[3].p[P_ARPM] == TP[P_ARPM].max && trk[3].p[P_PAN] == TP[P_PAN].min);
     proj_slot[1].magic = 0x46554E33u;                /* an old Felucca project ("FUN3") */
     check("project: Felucca projects are not used", !project_used(1));
     project_save(2);
@@ -3742,23 +3747,23 @@ static void test_reverb_pages(void)
 /* sound pack: division knobs run by length (4BAR .. 1/32), the stored value stays the id; the gauge follows */
 static void test_div_order(void)
 {
-    static const int16_t WANT[10] = {9, 8, 7, 6, 0, 1, 4, 2, 5, 3};
+    static const int16_t WANT[12] = {9, 8, 7, 6, 0, 1, 4, 10, 2, 5, 11, 3};
     const param_desc_t *d = &TP[P_SDIV];
     uint32_t i, ok = 1;
-    for (i = 0; i + 1u < 10u; i++)
+    for (i = 0; i + 1u < 12u; i++)
         ok &= param_turn(d, WANT[i], 1) == WANT[i + 1] && param_turn(d, WANT[i + 1], -1) == WANT[i];
     ok &= param_turn(d, 3, 1) == 3 && param_turn(d, 9, -1) == 9 && param_turn(d, 9, 20) == 3;
-    check("DIV: the knob steps 4BAR 2BAR 1/1 1/2 1/4 1/8 8T 1/16 16T 1/32, stopping at the ends", ok);
+    check("DIV: the knob steps 4BAR 2BAR 1/1 1/2 1/4 1/8 8T 3/4X 1/16 16T 3/2X 1/32, stopping at the ends", ok);
     check("DLY TIME: the same order", param_turn(&GP[G_DTIME], 6, 1) == 0 && param_turn(&GP[G_DTIME], 0, -1) == 6);
-    check("DIV gauge: by length (4BAR empty, 1/32 full, 1/4 at 4/9)",
-          RATIO(d, 9) == 0 && RATIO(d, 3) == 1000 && RATIO(d, 0) == 444);
+    check("DIV gauge: by length (4BAR empty, 1/32 full, 1/4 at 4/11)",
+          RATIO(d, 9) == 0 && RATIO(d, 3) == 1000 && RATIO(d, 0) == 363);
     check("other knobs keep their order (SLICER RATE, ids as shown)", param_turn(&TP[P_SLRATE], 1, 1) == 2);
     ui_host_init();
     settings.accel = 0;
     seq_open("PATTERN");
     trk[song.sel].p[P_SDIV] = 9;
     ok = 1;
-    for (i = 1; i < 10u; i++) {
+    for (i = 1; i < 12u; i++) {
         turn(EN_K2, 1);
         ui_frame();
         ok &= trk[song.sel].p[P_SDIV] == WANT[i];

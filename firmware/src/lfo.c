@@ -5,7 +5,7 @@
  * MULT SPD INTL DPTH, or its WAVE) or PTCH (the synth machine's pitch, eight ranges: a vibrato .. 16 octaves). Always on
  * the tempo: SPD x MULT, SPD 64 at MULT 2X one cycle a bar of 16 steps (a cycle = 2048 / (SPD x MULT) steps). TRIG:
  * FREE runs on; TRIG starts over at the track's notes; HOLD runs on, its output the value at the last note; ONE and
- * HALF start over at a note and stop after a cycle / half. INTL (the SidStation's interlace): the wave and silence in
+ * HALF start over at a note and stop after a cycle / half. INTL (interlaced phase): the wave and silence in
  * turn, INTL times a cycle each. LFOs on one knob add up. The waves are functions of the phase (2^32 a cycle) but RND
  * (a new value a cycle); the mirrored ones the same upside down. Output Q15, -32767 .. 32767; a block's knobs written
  * in t->p (their set values kept in t->lsave, put back at the block's end: lfo_restore), in the order LFO 1, 2, 3, so

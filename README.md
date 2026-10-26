@@ -15,7 +15,7 @@ MNM-1's own. Calibrated audio algorithms and 120 complete sounds are ported from
 - **Play it in your browser:** <https://galfaroth.github.io/mnm1/>. The page runs the real firmware, compiled to
   WebAssembly, on an FM-1 you can play with the mouse, a touch screen or the computer keyboard.
 - **Install it on your FM-1:** <https://galfaroth.github.io/mnm1/webapp/installer/>, in Chrome or Edge, over the
-  FM-1's USB cable. Or from a terminal: `python3 tools/fm1_install.py mnm1-0.7.0.fwsc --port FM-1 --yes`
+  FM-1's USB cable. Or from a terminal: `python3 tools/fm1_install.py mnm1-0.10.0.fwsc --port FM-1 --yes`
   (needs `mido` and `python-rtmidi`).
 - **What comes next:** [docs/ROADMAP.md](docs/ROADMAP.md).
 - **What changed:** [CHANGELOG.md](CHANGELOG.md).
@@ -46,12 +46,16 @@ responsibility if your FM-1 is damaged or misbehaves. M-VAVE's own updater takes
 - **Presets:** 330 factory sounds: 210 existing/extended presets, 24 complete sounds in SOURCE and 96 in ARCHIVE.
   The PRESETS knob steps through them; hold EDIT for the list. Audition/cancel restores the complete sound.
   Calibrated sounds have separate AMP VOL and mixer LEVEL, and LFO target/phase controls. The existing 128 USER
-  slots still store legacy eight-knob presets; saving a full calibrated sound requires the expanded store.
+  slots store complete sounds after expanded-library migration; unmigrated storage retains its legacy format.
 - **Calibrated live input:** channels 1–6 play the corresponding calibrated track chromatically; held keys feed its
   arpeggiator. The original drum-channel mapping stays available.
 - **From Hortator:** up to 64 steps per track with its own length, PROB and A/B conditions, ratchets, accents,
   a per-track arpeggiator, live recording, mutes, SONG, the COMP sidechain compressor, PERFORM (live master effects),
-  MIDI and clock over USB and TRS, MIDI LEARN, four project slots.
+  MIDI and clock over USB and TRS, MIDI LEARN, and compatible legacy project loading.
+- **Expanded library:** eight patterns, eight independent kits and 128 full user sounds after explicit migration.
+  The library replaces sample slots 2 and 3; sample slot 1 remains. See [the storage plan](docs/PORT_PLAN.md).
+- **Sequencing:** independent AMP/FILTER/LFO trig lanes, note-off and trigless events; swing masks,
+  fractional speeds, KEY/SID/ADD arpeggiation with a 16-step rhythm, and track/pattern transpose.
 
 ## On the panel
 
@@ -61,11 +65,11 @@ responsibility if your FM-1 is damaged or misbehaves. M-VAVE's own updater takes
 | **ENV** | FILTER |
 | **FX** | EFFECTS, SLICER, REVERB, CHORUS, LOFI; calibrated tracks also DESTROY and MOD FX. Hold for PERFORM |
 | **LFO** | LFO 1, 2, 3 |
-| **ARP** | the track's arpeggiator: MODE SPEED RANGE CHORD |
-| **SEQ** | STEP (the steps on the white keys), PATTERN, MOTION, SONG |
+| **ARP** | existing ARP, then ARP MODE, ARP TRIG and ARP RHYTHM |
+| **SEQ** | STEP, PATTERN, MOTION, SONG, SWING MASK and TRANSPOSE |
 | **HOME** | a tap: TRACKS (levels, lengths, pans) or HOME (the scope; SELECT on to COMP). Hold: the menu |
 | **GLO** | a tap: global settings; held: the white keys mute tracks |
-| **SAVE** | projects (save, load, name) and tools |
+| **SAVE** | patterns (save, load, name), tools and independent KIT slots |
 | **SCL** (SEL) | KEYS on / off: the keys play the selected track (on at power-on); OCT- / OCT+ set the octave |
 | **REC** | arm recording; on STEP, stopped, with KEYS on: step record |
 | **PLAY** | start / stop |
@@ -76,11 +80,24 @@ sets the tempo on TRACKS. **KNOB 1-4** edit the lit row.
 ### Steps and locks
 
 - On **STEP**, tap a white key to turn a step on or off; OCT- / OCT+ change the bank of 16.
+- STEP knob 2 chooses ALL, AMP, FILTER or LFO. Hold a step and turn SELECT to choose its trig type.
 - Hold a step: KNOB 1 its chance (PROB), KNOB 2 ratchets, KNOB 3 accent, KNOB 4 SLIDE.
 - **LOCK mode:** hold a step and press EDIT, ENV, FX or LFO. The page opens with the keys still the steps; hold any
   step and turn a knob to lock that value there (inverted on screen, `LOCK S5`). Hold OCT- and turn a knob to clear only its lock; tap OCT- to clear the held step's locks on release.
   SEQ leaves LOCK mode.
 - Press REC while playing and turn knobs to record locks live.
+
+### Timing and live arpeggiation
+
+ARP MODE selects LEGACY (the existing ARP page), KEY, SID, ADD or OFF. PLAY chooses
+TRUE, UP, DOWN, CYCLE or RND; SPD 6 is a sixteenth note, RNGE is one to four octaves.
+ARP TRIG controls OJMP and the AMP/FLT/LFO switches for subsequent notes; the first
+audible note triggers all three. ARP RHYTHM chooses length, step, enable and note offset.
+
+SWING MASK sets the pattern amount (50–80), step number and that track's enable bit.
+A value of 0 retains the old global/track swing controls. TRANSPOSE sets track amount,
+scale, key and the pattern amount. FIX ignores the pattern transpose; MAJ and MIN
+choose the nearest scale note, ties downward. Stored step notes remain unchanged.
 
 ## Building
 
@@ -96,7 +113,7 @@ The web simulator and site ([docs/SIMULATOR.md](docs/SIMULATOR.md)) need Python 
 emscripten (a native `emcc`, e.g. `brew install emscripten`, or Docker):
 
 ```sh
-tools/build_sim.sh --preview --package dist/mnm1-0.7.0.fwsc
+tools/build_sim.sh --preview --package dist/mnm1-0.10.0.fwsc
 cd build/sim/preview && python3 -m http.server 8001
 ```
 

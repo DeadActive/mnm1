@@ -495,6 +495,7 @@ static void step_accent(uint32_t k)
 static void track_clear(track_t *t)               /* its steps and its motion; its last KEYS note C4 again */
 {
     memset(t->step, 0, sizeof t->step);
+    memset(t->seq.swing,0xAA,sizeof t->seq.swing);
     t->key_nt = 0;
     motion_clear((uint32_t)(t - trk));
 }

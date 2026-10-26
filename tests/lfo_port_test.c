@@ -182,8 +182,26 @@ static void semantics(void) {
     mml_block(&s,raw,1200,&seed,-1);assert(s.voice[0][0].value==held);
     for(unsigned d=1;d<=71;++d)assert(mml_destination[d]==d-1);
 }
+static void control_cache(void) {
+    mml_state s;uint8_t raw[6][3][8],effective[6][3][8];
+    for(unsigned scenario=0;scenario<2000;++scenario){
+        mml_init(&s);
+        for(unsigned t=0;t<6;t++)for(unsigned l=0;l<3;l++)for(unsigned p=0;p<8;p++)
+            raw[t][l][p]=(uint8_t)(next_random()>>25);
+        s.count=MML_MAX_MOD;
+        for(unsigned i=0;i<s.count;i++){
+            s.mod[i].track=next_random()%6;s.mod[i].param=next_random()%71;
+            s.mod[i].value=(int32_t)(next_random()%131073)-65536;
+        }
+        /* Repeated entries must retain the old first-match behavior. */
+        s.mod[0]=(mml_mod){2,49,-257};s.mod[17]=(mml_mod){2,49,65536};
+        mml_controls(&s,raw,effective);
+        for(unsigned t=0;t<6;t++)for(unsigned l=0;l<3;l++)for(unsigned p=0;p<8;p++)
+            assert(effective[t][l][p]==mml_control(&s,t,l,p,raw[t][l][p]));
+    }
+}
 int main(void) {
-    differential();semantics();
+    differential();semantics();control_cache();
     printf("LFO: 20000 donor differential blocks and trigger/routing/depth semantics passed; state=%zu bytes\n",sizeof(mml_state));
     return 0;
 }

@@ -174,9 +174,12 @@
   <article class="doc-block" aria-labelledby="m-seq">
     <h3 id="m-seq">Sequencer and parameter locks</h3>
     <p><b>SEQ</b> puts the selected track's steps on the 16 white keys: tap a key to turn a step on or off. Press SEQ
-      again for PATTERN (length, speed, swing, gate), MOTION and SONG. OCT− and OCT+ change the bank of 16 steps
+      again for PATTERN (length, speed, swing, gate), MOTION, SONG, SWING MASK and TRANSPOSE. OCT− and OCT+ change the bank of 16 steps
       (up to 64).</p>
     <ul class="doc-list">
+      <li><b>Trig lanes:</b> STEP knob 2 selects ALL, AMP, FILTER or LFO. Hold a step and turn SELECT to choose its trig type, including trigless and note-off.</li>
+      <li><b>Timing:</b> SWING MASK sets a 50–80 amount and the delayed steps; 0 retains legacy swing. PATTERN adds 3/4X and 3/2X speeds. TRANSPOSE sets track amount, scale, key and pattern amount.</li>
+      <li><b>ARP:</b> ARP MODE adds KEY, SID and ADD with five playback orders. ARP TRIG sets octave jump and retrigger switches; ARP RHYTHM edits a 16-step rhythm and note offsets.</li>
       <li><b>Hold a step:</b> KNOB 1 is its chance (PROB, and A/B conditions), KNOB 2 ratchets, KNOB 3 accent, KNOB 4
         SLIDE.</li>
       <li><b>Parameter locks:</b> on STEP, hold a step and press EDIT, ENV, FX or LFO. The 8-knob page opens in LOCK
@@ -209,8 +212,7 @@
         Original machines remain available. Controls marked n/a are unimplemented.</li>
       <li><b>More FX:</b> STRNG, PIPE, CHORD and MODAL machines; LOFI adds tape, crunch, hiss/dust and drive.
         REVERB TYPE adds STEREO. The panel layout stays the same.</li>
-      <li><b>SAVE:</b> four project slots (save, load, name) and tools. In the simulator, projects are saved in your
-        browser.</li>
+      <li><b>SAVE:</b> eight patterns, eight independent kits and 128 full user sounds after explicit library migration. Migration replaces sample slots 2 and 3, preserving slot 1; the legacy store remains available before migration. Simulator saves stay in your browser.</li>
     </ul>
   </article>
 </section>
@@ -223,19 +225,16 @@
   </header>
   <div class="doc-cols roadmap">
     <div>
-      <h4>Next</h4>
+      <h4>Next: 0.11</h4>
       <ul class="doc-list">
-        <li><b>Deeper machines:</b> SWAVE-SAW and PULSE, SID with ring, sync and the previous track's pitch, then
-          SWAVE-ENS, DPRO-WAVE, three FM+ machines, VO-6 consonants, three GND machines.</li>
+        <li>TRIG POS: forward notes between tracks.</li>
+        <li>MULTI TRIG, keyboard split and a shared envelope.</li>
+        <li>Velocity and keytrack assignments, separate HP/LP tracking switches.</li>
       </ul>
-      <h4>Planned</h4>
+      <h4>Then: 1.0</h4>
       <ul class="doc-list">
-        <li>AMP, FILTER and LFO trig tracks; trigless, note-off and pitchless trigs.</li>
-        <li>A fuller arpeggiator (KEY, SID, ADD modes, a rhythm and offset track) and transpose.</li>
-        <li>Swing as a step mask, 3/4X and 3/2X speeds, clearing a single lock.</li>
-        <li>More patterns and kits, stored separately.</li>
-        <li>MULTI TRIG, TRIG POS and ASSIGN.</li>
-        <li>Grids as a trig source; RESON back as an FX machine.</li>
+        <li>SONG rows with transpose, tempo, offset, length, mutes, loops and jumps.</li>
+        <li>The expanded pattern/kit/sound library is already implemented.</li>
       </ul>
     </div>
     <div>

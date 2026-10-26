@@ -5,6 +5,7 @@
  */
 #define MM2_MUL_OUT 1
 #define MNM_NO_LIBC_HEADERS 1
+#include "seq_transpose.h"
 #include "mm_adapter.h"
 #include "mm_controls.h"
 #define MM_MODEL_FIRST 63u
@@ -77,14 +78,14 @@ static mma_track_t *mmen_prepare(track_t *t) {
 }
 static void mmen_trigger(track_t *t,dvoice_t *v) {
  mma_track_t *s=mmen_prepare(t);uint8_t raw[71];if(!s)return;
- mm_controls_get(t,raw);mma_trigger(s,raw,(unsigned)clamp(60+t->nt,0,127),v->vel,0,-1);
+ mm_controls_get(t,raw);mma_trigger(s,raw,(unsigned)seq_note(t),v->vel,0,-1);
  v->active=1;v->t=0;
 }
 static void mmen_trigger_mask(track_t *t,dvoice_t *v,unsigned velocity,unsigned flags) {
  mma_track_t *s=mmen_prepare(t);uint8_t raw[71];if(!s)return;
  mm_controls_get(t,raw);
  int32_t pitch=s->pitch,target=s->ptarget;uint8_t note=s->note,slide=s->slide;
- mma_trigger_mask(s,raw,(unsigned)clamp(60+t->nt,0,127),velocity,0,-1,flags&(ST_NOAMP|ST_NOFLT));
+ mma_trigger_mask(s,raw,(unsigned)seq_note(t),velocity,0,-1,flags&(ST_NOAMP|ST_NOFLT));
  if((flags&(ST_NOAMP|ST_NOPITCH))==(ST_NOAMP|ST_NOPITCH)){
   s->pitch=pitch;s->ptarget=target;s->note=note;s->slide=slide;
  }
@@ -101,7 +102,7 @@ static void mmen_idle_filter(track_t *t,unsigned n) {
 static void mmen_glide(track_t *t,dvoice_t *v) {
     t->trig_nt=t->nt;
  mma_track_t *s=mmen_prepare(t);uint8_t raw[71];if(!s)return;
- mm_controls_get(t,raw);mma_trigger(s,raw,(unsigned)clamp(60+t->nt,0,127),v->vel,1,-1);
+ mm_controls_get(t,raw);mma_trigger(s,raw,(unsigned)seq_note(t),v->vel,1,-1);
  v->active=1;v->t=0;
 }
 static void mmen_gate(track_t *t,dvoice_t *v,int open) {

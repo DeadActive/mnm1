@@ -77,6 +77,8 @@ static void expanded_pattern_rename(uint32_t slot,const char *name)
     if(!rc&&chain.from==slot+1)name_set(chain.name,name);
     ui_message(rc?"SAVE ERROR":"RENAMED");
 }
+static seq_options_t expanded_chain_options[8][NTRK];
+static pattern_options_t expanded_chain_global[8];
 /* Cache before PLAY: the audio interrupt never reads external flash. */
 static uint32_t expanded_chain_prepare(void)
 {
@@ -90,6 +92,8 @@ static uint32_t expanded_chain_prepare(void)
         const mmr_pattern_t *p=&mmlib_work.pattern;
         memcpy(cache->step,p->step,sizeof cache->step);cache->motion=p->motion;
         chain_src_t *d=&chain.src[slot];d->m=&cache->motion;
+        memcpy(expanded_chain_options[slot],p->seq,sizeof p->seq);expanded_chain_global[slot]=p->options;
+        d->seq=expanded_chain_options[slot];d->options=&expanded_chain_global[slot];
         for(unsigned k=0;k<NTRK;k++){
             d->step[k]=cache->step[k];d->model[k]=mmlib_kits.kit[p->kit%2].sound[k].p[P_MODEL];
             for(unsigned j=0;j<4;j++)for(unsigned x=0;x<MMR_PATTERN_N;x++)

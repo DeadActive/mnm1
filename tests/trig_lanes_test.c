@@ -154,21 +154,23 @@ static void test_lane_ui(void)
 }
 static void test_flag_storage(void)
 {
-    static project_t old;
+    static union {mnm_project_v5_t wire;project_t current;} old;
     static mmr_pattern_t pattern;
     fresh(DM_MMSAW);memset(&chain.cfg,0,sizeof chain.cfg);
     for(unsigned k=0;k<NTRK;k++)for(unsigned i=0;i<NSTEP;i++){
         trk[k].step[i].on=1;trk[k].step[i].rsv=(uint8_t)(i&ST_MASK);
     }
-    project_save(0);assert(proj_slot[0].magic==PROJ_MAGIC&&PROJ_MAGIC==0x354D4E4Du);
+    project_save(0);assert(proj_slot[0].magic==PROJ_MAGIC&&PROJ_MAGIC==0x364D4E4Du);
     memset(trk[0].step,0,sizeof trk[0].step);project_load(0);transport_req=0;
     for(unsigned k=0;k<NTRK;k++)for(unsigned i=0;i<NSTEP;i++)assert(trk[k].step[i].rsv==(i&ST_MASK));
-    old=proj_slot[0];old.magic=PROJ_V4_MAGIC;
-    for(unsigned k=0;k<NTRK;k++)for(unsigned i=0;i<NSTEP;i++)old.t[k].step[i].rsv=255;
-    old.sum=proj_sum(&old);assert(proj_decode(&old,sizeof old)&&proj_ok(&old));
-    for(unsigned k=0;k<NTRK;k++)for(unsigned i=0;i<NSTEP;i++)assert(!old.t[k].step[i].rsv);
+    memset(&old,0,sizeof old);old.wire.magic=PROJ_V4_MAGIC;old.wire.size=sizeof old.wire;
+    memcpy(old.wire.g,proj_slot[0].g,sizeof old.wire.g);
+    for(unsigned k=0;k<NTRK;k++)for(unsigned i=0;i<P_COUNT;i++)old.wire.t[k].p[i]=proj_value(&proj_slot[0].t[k],i);
+    for(unsigned k=0;k<NTRK;k++)for(unsigned i=0;i<NSTEP;i++)old.wire.t[k].step[i].rsv=255;
+    old.wire.sum=proj_hash(&old.wire,sizeof old.wire-4);assert(proj_decode(&old.current,sizeof old.wire)&&proj_ok(&old.current));
+    for(unsigned k=0;k<NTRK;k++)for(unsigned i=0;i<NSTEP;i++)assert(!old.current.t[k].step[i].rsv);
     assert(mmr_pattern_capture(&pattern,trk,song.g,&mo.s,&chain.cfg,0,0,"FLAGS"));
-    assert(pattern.version==2&&MMR_PATTERN_VERSION==2);
+    assert(pattern.version==3&&MMR_PATTERN_VERSION==3);
     memset(trk[0].step,0,sizeof trk[0].step);
     assert(mmr_pattern_apply(trk,song.g,&mo.s,&chain.cfg,&pattern));
     for(unsigned i=0;i<NSTEP;i++)assert(trk[0].step[i].rsv==(i&ST_MASK));

@@ -14,7 +14,7 @@ enum { MS_ATK, MS_HOLD, MS_DEC, MS_REL };
 #define MM_P16_MAX (128 * 16 - 1)
 
 static inline uint32_t mm_inc(int32_t p16) { return PITCH_INC[clamp(p16, 0, MM_P16_MAX)]; }
-static inline int32_t mm_note16(const track_t *t) { return (60 + t->nt) * 16; }
+static inline int32_t mm_note16(const track_t *t) { return seq_note(t) * 16; }
 /* the glide's per-block factor (ENV_EXP: ~99 % of the way in its time): PORT 1..127 = ~4 ms .. ~3 s; 0: a slide's
  * ~60 ms */
 static int32_t mm_glide_k(int32_t port)

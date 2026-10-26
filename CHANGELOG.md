@@ -5,6 +5,15 @@ own history is in its repository.
 
 ## Unreleased
 
+## 0.10.0 - 2026-10-26
+
+- Add pattern swing amount and per-track 64-step swing masks; preserve the existing swing law for older projects. Keep fractional timing and nominal SONG row boundaries.
+- Add 3/4X and 3/2X speed choices without changing previous division IDs.
+- Add KEY, SID and ADD arpeggiation, five playback orders, octave range/jump, trigger switches and a 16-step rhythm with note offsets. Existing ARP behavior remains available as LEGACY.
+- Add track/pattern transpose, FIX and major/minor scale constraints. Scale rounding uses the nearest legal note, ties downward; octave-jump behavior is an explicitly documented interpretation pending physical comparison.
+- Cache cross-LFO controls once per block with identical modulation results; device tests confirm lower overload-recovery cost. Isolate two legacy drum setup paths from target multiply scheduling hazards.
+- Add controls as pages within the existing ARP and SEQ families. Store options in compact MNM6 projects and version-three expanded patterns, retaining readers for previous formats.
+
 ## 0.9.0 - 2026-10-26
 
 - Add independent AMP, FILTER and LFO trig lanes, trigless notes, note-off, pitchless and locks-only steps. Ratchets retain their original event flags.
