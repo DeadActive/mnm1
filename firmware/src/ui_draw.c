@@ -1316,11 +1316,10 @@ static void mix_row(uint32_t c, uint32_t bank, uint32_t ph)
     }
     if (mute) {
         md_text(MX_LX + 2, 2, &MD_F3, 2, "MUTE", C_INK);
-    } else {                                      /* the level: a solid bar over a dithered box; the live peak a
+    } else {                                      /* the level: a solid fill inside an otherwise empty outline; the live peak a
                                                    * 1 px mark (BG on the bar, ink past it) */
         lw = (int32_t)lvl * (MX_LW - 2) / 127;
         cv_frame(MX_LX, 1, MX_LW, 11, C_INK);
-        cv_dither(MX_LX + 1, 2, MX_LW - 2, 9, C_INK);
         cv_rect(MX_LX + 1, 2, lw, 9, C_INK);
         if (mx.meter[c]) {
             int32_t px = mx.meter[c] * (MX_LW - 2) / MX_LW;

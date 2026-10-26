@@ -2725,7 +2725,7 @@ static void test_graph_comp_meter(void)
 }
 
 /* spec 2026-10-19-md-ui §8: TRACKS keeps every item of its rows (number, arm, model, the bank's 16 steps, the level
- * over a dithered box, the live peak); MUTE's boxes; PERFORM's buttons */
+ * inside an empty outline, the live peak); MUTE's boxes; PERFORM's buttons */
 static void test_tracks_row_items(void)
 {
     uint32_t y, box, inner;
@@ -2738,11 +2738,12 @@ static void test_tracks_row_items(void)
     ui_frame();
     y = MX_ROW_Y(0);
     box = fb_count(MX_LX, y + 1u, MX_LW, 11, C_INK);
-    inner = fb_count(MX_LX + (uint32_t)MX_LW / 2u + 4u, y + 3u, 8, 7, C_INK);   /* past the level: the dither */
+    inner = fb_count(MX_LX + (uint32_t)MX_LW / 2u + 4u, y + 3u, 8, 7, C_INK);   /* past the level: empty background */
     check("TRACKS row: the number + model in ink (x 2..60)", fb_count(2, y, 58, MX_RH, C_INK) > 30u);
     check("TRACKS row: step 1 a cell, steps 2..16 baselines", fb_count(MX_CELL_X(0), y + 4u, 6, 7, C_INK) == 42u &&
           fb_count(MX_CELL_X(1), y + 4u, 6, 6, C_INK) == 0u && fb_count(MX_CELL_X(1), y + 10u, 6, 1, C_INK) == 6u);
-    check("TRACKS row: the level a solid bar over a dithered box", box > 60u && inner > 20u && inner < 40u);
+    check("TRACKS row: outlined level with solid fill and empty remainder",
+          box == 2u * MX_LW + 18u + (64u * (MX_LW - 2u) / 127u) * 9u && inner == 0u);
 }
 
 static void test_tracks_peak_tick(void)
@@ -2764,6 +2765,17 @@ static void test_tracks_peak_tick(void)
         for (x = 0; x < (uint32_t)MX_LW; x++)
             d += fb[(y + r) * 240u + MX_LX + x] != a[r][x];
     check("TRACKS: a loud track's live peak marks its level box", d >= 4u);
+    /* Let the peak cross both empty and filled portions, using incremental
+     * damage only. Its final pixels must match the original silent fader. */
+    for (x = 0; x < MX_LW + 1u; x++) {
+        trk[0].peak = 0;
+        ui_frame();
+    }
+    d = 0;
+    for (r = 0; r < 11u; r++)
+        for (x = 0; x < (uint32_t)MX_LW; x++)
+            d += fb[(y + r) * 240u + MX_LX + x] != a[r][x];
+    check("TRACKS: incremental peak decay restores fill, empty area and border", !mx.meter[0] && d == 0u);
 }
 
 static void test_mute_boxes(void)
