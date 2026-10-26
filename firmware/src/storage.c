@@ -115,7 +115,9 @@ static int st_load(uint32_t obj, void *dst, uint32_t max)
     return (int)h.len;
 }
 
-static int st_save(uint32_t obj, const void *src, uint32_t len)
+/* Retain the failing operation for the read-only USB storage diagnostic. */
+static struct {int error;uint32_t address;uint8_t stage,obj;} st_last_save;
+static int st_save_impl(uint32_t obj, const void *src, uint32_t len)
 {
     uint32_t seq, base, off;
     int cur, rc;
@@ -127,10 +129,12 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
     base = st_sector(obj, cur == 0 ? 1u : 0u);       /* write the other copy */
     for (off = 0; off < len; off++)
         st_buf[off] = ((const uint8_t *)src)[off];    /* the driver wants RAM sources */
+    st_last_save.stage=2;st_last_save.address=base;
     if ((rc = st_erase(base)) != 0)
         return rc;
     for (off = 0; off < len; off += 256u) {
         uint32_t n = len - off > 256u ? 256u : len - off;
+        st_last_save.stage=3;st_last_save.address=base+ST_PAYLOAD_OFF+off;
         if ((rc = st_prog(base + ST_PAYLOAD_OFF + off, st_buf + off, n)) != 0)
             return rc;
     }
@@ -142,8 +146,10 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
     h.crc = st_crc32(st_buf, len);
     h.rsv[0] = h.rsv[1] = 0xFFFFFFFFu;
     h.hcrc = st_crc32(&h, sizeof h - 4u);
+    st_last_save.stage=4;st_last_save.address=base;
     if ((rc = st_prog(base, &h, sizeof h)) != 0)       /* the commit record, last */
         return rc;
+    st_last_save.stage=5;
     {   /* read back: a write-protected or failing part must not report SAVED */
         st_hdr_t chk;
         uint32_t c = cur == 0 ? 1u : 0u;
@@ -151,4 +157,12 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
             return -7;
     }
     return 0;
+}
+
+static int st_save(uint32_t obj,const void *src,uint32_t len)
+{
+    st_last_save.error=0;st_last_save.address=0;st_last_save.stage=1;st_last_save.obj=(uint8_t)obj;
+    int rc=st_save_impl(obj,src,len);st_last_save.error=rc;
+    if(!rc)st_last_save.stage=0;
+    return rc;
 }

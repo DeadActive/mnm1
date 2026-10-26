@@ -122,15 +122,13 @@ static void motion_end(void)                      /* seq_stop: the patch back */
 /* the next lock of knob id on track k after step s (within LEN, round to s itself), its distance in steps (0: none) */
 static uint32_t motion_next(const motion_store_t *m, uint32_t k, uint32_t s, uint32_t id, uint32_t len, int8_t *v)
 {
-    uint32_t i, best = 0;
+    uint32_t i, best = 0, source_len=seq_source_length(&trk[k]), offset=seq_source_index(&trk[k],0);
     for (i = 0; i < m->count; i++) {
         const motion_event_t *e = &m->ev[i];
-        if (e->trk == k && e->param == id && e->step < len) {
-            uint32_t d = (e->step + len - s) % len;
-            d = d ? d : len;
-            if (!best || d < best) {
-                best = d;
-                *v = e->value;
+        if (e->trk == k && e->param == id && e->step<source_len) {
+            for(uint32_t at=(e->step+source_len-offset)%source_len;at<len;at+=source_len) {
+                uint32_t d=(at+len-s)%len;
+                if(d && (!best || d<best)){best=d;*v=e->value;}
             }
         }
     }
@@ -143,24 +141,25 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t s)
 {
     uint32_t k = (uint32_t)(t - trk), i, moved = 0, here = 0, len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
     const motion_store_t *m = mo.src ? mo.src : &mo.s;
+    uint32_t source_step=seq_source_index(t,s);
     if (!((m->on >> k) & 1u))
         return;
     if (!((mo.base_ok >> k) & 1u))
         motion_take_base(k);
     for (i = 0; i < m->count && !here; i++)
-        here = m->ev[i].trk == k && m->ev[i].step == s;
-    if (!s || here || (s < NSTEP && t->step[s].on)) {
+        here = m->ev[i].trk == k && m->ev[i].step == source_step;
+    if (!s || !source_step || here || (s < NSTEP && seq_step_at(t,s)->on)) {
         moved = 0;
         for (i = 0; i < MO_W; i++)
             moved |= mo.act[k][i];
-        if (!s)
+        if (!s || !source_step)
             motion_restore(k);                     /* (the loop's start: every glide ends too) */
         else
             motion_restore_keep(k, 1);
     }
     for (i = 0; i < m->count; i++) {
         const motion_event_t *e = &m->ev[i];
-        if (e->trk == k && e->step == s &&
+        if (e->trk == k && e->step == source_step &&
             !(mo.model && mo.model[k] != t->p[P_MODEL] && e->param >= P_E0 && e->param <= P_E7)) {
             const param_desc_t *d = track_desc(t, e->param);
             int16_t v = (int16_t)clamp(e->value, d->min, d->max);
@@ -171,7 +170,7 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t s)
             for (j = 0; j < MO_SL; j++)            /* a lock of its own ends its glide */
                 if (mo.sl[k][j].on && mo.sl[k][j].id == e->param)
                     mo.sl[k][j].on = 0;
-            if (s < NSTEP && t->step[s].pslide) {   /* PARAMETER SLIDE: to the next lock of this knob */
+            if (s < NSTEP && seq_step_at(t,s)->pslide) {   /* PARAMETER SLIDE: to the next lock of this knob */
                 int8_t to;
                 uint32_t dist = motion_next(m, k, s, e->param, len, &to);
                 for (j = 0; j < MO_SL && mo.sl[k][j].on; j++)

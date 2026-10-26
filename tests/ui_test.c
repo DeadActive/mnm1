@@ -6095,6 +6095,7 @@ static void test_foot_note_song(void)
     row[3].slide = 1;
     keep = chain.src[0].step[0];
     chain.src[0].step[0] = row;
+    chain.src[0].timing[0][0] = NSTEP;
     chain.slot = 0;
     chain.running = 1;
     ui.srec = 1;

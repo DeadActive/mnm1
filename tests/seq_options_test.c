@@ -12,7 +12,7 @@ static mmr_sounds_t sounds;
 typedef struct {
     uint16_t version;uint8_t used,kit,selected,reserved;char name[12];
     int16_t g[45],timing[6][5];step_t step[6][64];
-    motion_store_t motion;chain_config_t song;
+    motion_store_t motion;chain_config_v1_t song;
 } old_pattern_t;
 _Static_assert(sizeof(old_pattern_t)==2704,"old pattern wire layout changed");
 static old_pattern_t old;
@@ -53,7 +53,7 @@ static void test_options(void)
         q->transpose=(int8_t)(48-k);q->scale_key=3*16+11;q->arp_speed=96;wanted[k]=*q;
     }
     assert(mmr_pattern_capture(&pattern,trk,song.g,&mo.s,&chain.cfg,0,0,"OPTIONS"));
-    assert(pattern.version==3);
+    assert(pattern.version==MMR_PATTERN_VERSION);
     defaults();assert(mmr_pattern_apply(trk,song.g,&mo.s,&chain.cfg,&pattern));
     for(unsigned k=0;k<NTRK;k++)assert(!memcmp(&wanted[k],&trk[k].seq,sizeof wanted[k]));
     assert(song.seq.swing==80&&song.seq.transpose==-48&&song.seq.scale==3&&song.seq.key==11);
@@ -87,7 +87,7 @@ static void old_blob(unsigned version)
     /* Copy the frozen fields individually; do not serialize the new struct. */
     memset(&old,0,sizeof old);old.version=version;old.used=1;
     memcpy(old.name,pattern.name,sizeof old.name);memcpy(old.g,pattern.g,sizeof old.g);
-    memcpy(old.timing,pattern.timing,sizeof old.timing);old.motion=pattern.motion;old.song=pattern.song;
+    memcpy(old.timing,pattern.timing,sizeof old.timing);old.motion=pattern.motion;memcpy(&old.song,&pattern.song,sizeof old.song);
     old.step[0][5].on=1;old.step[0][5].nt=9;old.step[0][5].rsv=version==1?255:ST_NOAMP|ST_NOPITCH;
     for(unsigned group=0;group<4;group++){
         assert(!mms_stage(&mmlib_store,8+group,&kits,sizeof kits));
@@ -108,13 +108,32 @@ static void old_blob(unsigned version)
     song.seq=(pattern_options_t){73,-9,2,7};
     seq_options_t changed=trk[3].seq;pattern_options_t changed_pattern=song.seq;
     assert(!library_save_pattern(0,0));
-    assert(mms_read_object(&mmlib_store,0,&pattern,sizeof pattern)==sizeof pattern&&pattern.version==3);
+    assert(mms_read_object(&mmlib_store,0,&pattern,sizeof pattern)==sizeof pattern&&pattern.version==MMR_PATTERN_VERSION);
     written=writes;defaults();assert(!library_boot(io));assert(!library_load_pattern(0));
     assert(writes==written&&!memcmp(&changed,&trk[3].seq,sizeof changed));
     assert(!memcmp(&changed_pattern,&song.seq,sizeof changed_pattern));
 }
+static void old_v3_blob(void)
+{
+    static mmr_pattern_v3_t v3;
+    assert(mmr_pattern_capture(&pattern,trk,song.g,&mo.s,&chain.cfg,0,0,"OLD V3"));
+    memset(&v3,0,sizeof v3);
+    memcpy(&v3,&pattern,__builtin_offsetof(mmr_pattern_v3_t,seq));
+    memcpy(v3.seq,pattern.seq,sizeof v3.seq);v3.options=pattern.options;v3.version=3;
+    v3.song.count=2;v3.song.row[0]=(chain_row_t){0,3};v3.song.row[1]=(chain_row_t){0,2};
+    assert(!mms_stage(&mmlib_store,0,&v3,sizeof v3)&&!mms_commit(&mmlib_store));
+    unsigned written=writes;
+    memset(&mmlib_work,0xCC,sizeof mmlib_work);
+    assert(!library_boot(io)&&!library_load_pattern(0)&&writes==written);
+    assert(chain.cfg.count==2&&chain.cfg.row[0].repeat==3);
+    chain_row_options_t zero={0};
+    for(unsigned i=0;i<CHAIN_ROWS;i++)assert(!memcmp(&chain.cfg.options[i],&zero,sizeof zero));
+    assert(!memcmp(&song.seq,&v3.options,sizeof song.seq));
+    for(unsigned k=0;k<NTRK;k++)assert(!memcmp(&trk[k].seq,&v3.seq[k],sizeof trk[k].seq));
+    assert(mms_read_object(&mmlib_store,0,&v3,sizeof v3)==sizeof v3&&v3.version==3);
+}
 int main(void)
 {
-    test_options();old_blob(1);old_blob(2);
+    test_options();old_blob(1);old_blob(2);old_v3_blob();
     puts("seq_options_test: all passed");return 0;
 }

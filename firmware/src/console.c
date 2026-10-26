@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Serial console on the CDC-ACM function (FELUCCA_CDC=1): read-only
- * diagnostics. Runs in the main loop (cdc_task); usb_poll moves the bytes.
- * The baud rate is ignored. Nothing here writes flash; `uboot` does what
+/* Serial console on the CDC-ACM function (FELUCCA_CDC=1):
+ * diagnostics and explicit test actions. Runs in the main loop (cdc_task); usb_poll moves the bytes.
+ * The baud rate is ignored. Library migration and confirmed bank-A SAVE write flash.
+ * `uboot` does what
  * the SysEx soft key does; `bench yes` (fork, bench.c) replaces the pattern
  * in memory with its cases, the power-on state after. */
 #define CON_LINE 64u
@@ -237,6 +238,21 @@ static void con_status(void)
 #endif
 }
 
+static void con_storage(void)
+{
+#if FELUCCA_FLASH
+    con_kv("flash",flash_ok);con_kv("expanded",full_user.get!=0);con_kv("library_ready",library_ready());
+    con_kv("project_save_error",project_save_error);con_kv("settings_save_error",settings_save_error);
+    con_kv("save_error",st_last_save.error);con_kv("save_stage",st_last_save.stage);
+    con_kv("save_object",st_last_save.obj);con_kv("save_address",(int32_t)st_last_save.address);
+    con_kv("sfc_mode",fl_xip_mode());
+    uint32_t f=irq_save(),sr=FL_FAR(fl_status_ram)();irq_restore(f);
+    con_kv("flash_status",(int32_t)sr);
+#else
+    con_puts("flash disabled\r\n");
+#endif
+}
+
 static void con_dbg(void)
 {
     const uint32_t *w = (const uint32_t *)&felucca_dbg;
@@ -286,7 +302,7 @@ static void con_bench_out(const char *s)            /* BENCH lines (bench.c), al
 static void con_exec(const char *p)
 {
     if (con_word(&p, "help") || con_word(&p, "?")) {
-        con_puts("status  dbg  crash  params  memr ADDR [LEN]  flr OFF [LEN]  bench yes  library  uboot yes\r\n");
+        con_puts("status  dbg  crash  params  memr ADDR [LEN]  flr OFF [LEN]  bench yes  library  storage  uboot yes\r\n");
 #if FELUCCA_BLE
         con_puts("ble [start | scan | list | connect N | stop]: Bluetooth status and tests "
                  "(the page: MENU > BLUETOOTH)\r\n");
@@ -294,6 +310,19 @@ static void con_exec(const char *p)
     }
     else if (con_word(&p, "status"))
         con_status();
+    else if (con_word(&p, "storage")) {
+        if (con_word(&p, "save-a") && con_word(&p, "yes")) {
+            if (safe_start || transport_busy()) {
+                con_puts("stop playback before saving\r\n");
+                return;
+            }
+            project_save(0);
+        }
+        con_storage();
+    }
+    else if (con_word(&p, "reboot") && con_word(&p, "yes")) {
+        if (!transport_busy()) fm1_reboot();
+    }
     else if (con_word(&p, "dbg"))
         con_dbg();
     else if (con_word(&p, "crash"))

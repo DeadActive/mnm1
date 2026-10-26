@@ -47,11 +47,12 @@ static uint32_t div_rem_next(uint32_t div, uint32_t rem)
     uint32_t den, num = div_num_den(div, &den);
     return (beat_samples() * num + rem) % den;
 }
+static uint32_t seq_source_index(const track_t *t,uint32_t step);
 /* Manual swing displaces selected onsets; differences preserve the straight grid. */
 static uint32_t step_delay(const track_t *t,uint32_t period,uint32_t cnt)
 {
     if(!song.seq.swing)return 0;
-    unsigned len=(unsigned)clamp(t->p[P_SLEN],1,NSTEP),i=cnt%len;
+    unsigned len=(unsigned)clamp(t->p[P_SLEN],1,NSTEP),i=seq_source_index(t,cnt%len);
     if(!(t->seq.swing[i>>3]&(1u<<(i&7))))return 0;
     return period*(unsigned)(2*(clamp(song.seq.swing,50,80)-50))/100u;
 }
@@ -148,7 +149,9 @@ static int step_plays(track_t *t, const step_t *s, uint32_t len)
     return loop % b == a - 1u;
 }
 
-static const step_t *seq_steps(const track_t *t);   /* song.c: a song's row, else the track's own */
+static const step_t *seq_steps(const track_t *t);
+static uint32_t seq_source_length(const track_t *t);
+static const step_t *seq_step_at(const track_t *t,uint32_t step);   /* song.c: a song's row, else the track's own */
 
 /* ACID's GATE knob: 10..100 % of len (samples); a synth machine's LEN (the AMP page): 1..127 of 128 */
 static uint32_t acid_gate_len(const track_t *t, uint32_t len)
@@ -191,7 +194,7 @@ static __attribute__((noinline)) void acid_gates_close(void)
 static const step_t *seq_next(const track_t *t)
 {
     uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u;
-    return &seq_steps(t)[(t->seq_idx + 1u) % len];
+    return seq_step_at(t,(t->seq_idx + 1u) % len);
 }
 
 /* the gate of the ACID note just started (hit rat_k of the step's rat_n): GATE of a hit's length, held into the next
@@ -263,7 +266,7 @@ static __attribute__((noinline)) void acid_step(track_t *t, const step_t *s, con
  * now (rat_due plays the others). A track following Grids plays nothing from its steps; a drum's TIE step nothing. */
 static void step_fire(track_t *t, uint32_t len_s)
 {
-    const step_t *s = &seq_steps(t)[t->seq_idx];
+    const step_t *s = seq_step_at(t,t->seq_idx);
     uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u;
     if(s->rsv){
         t->rat_n=0;

@@ -29,7 +29,7 @@ typedef struct {
     uint8_t sel, rsv[3];
     proj_trk_va_t t[8];
     motion_store_v_t motion;
-    chain_config_t song;
+    chain_config_v1_t song; /* frozen 36-byte song prefix */
     char name[NAME_LEN];
     uint32_t sum;
 } project_va_t;
@@ -45,7 +45,7 @@ typedef struct {
     uint8_t sel, rsv[3];
     proj_trk_vb_t t[8];
     motion_store_v_t motion;
-    chain_config_t song;
+    chain_config_v1_t song; /* frozen 36-byte song prefix */
     char name[NAME_LEN];
     uint32_t sum;
 } project_vb_t;
@@ -62,7 +62,7 @@ typedef struct {
     uint8_t sel, rsv[3];
     proj_trk_vd_t t[8];
     motion_store_v_t motion;
-    chain_config_t song;
+    chain_config_v1_t song; /* frozen 36-byte song prefix */
     char name[NAME_LEN];
     uint32_t sum;
 } project_vc_t;
@@ -73,7 +73,7 @@ typedef struct {
     uint8_t sel, rsv[3];
     proj_trk_vd_t t[8];
     motion_store_v_t motion;
-    chain_config_t song;
+    chain_config_v1_t song; /* frozen 36-byte song prefix */
     char name[NAME_LEN];
     uint16_t pre[8];
     uint8_t pre_ed[8];
@@ -160,7 +160,7 @@ typedef struct {
     uint8_t sel, rsv[3];
     proj_trk_v9_t t[8];
     motion_store_v_t motion;
-    chain_config_t song;
+    chain_config_v1_t song; /* frozen 36-byte song prefix */
     char name[NAME_LEN];
     uint32_t sum;
 } project_v9_t;

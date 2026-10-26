@@ -14,8 +14,19 @@
 #define CHAIN_ROWS 16u
 #define NAME_LEN 12u
 typedef struct { uint8_t slot, repeat; } chain_row_t;                 /* slot 0..7 (A..H), repeat 1..16 */
-typedef struct { uint8_t count, loop, rsv[2]; chain_row_t row[CHAIN_ROWS]; } chain_config_t;   /* saved (FDR9) */
-typedef char chain_config_size[sizeof(chain_config_t) == 36u ? 1 : -1];
+typedef struct { uint8_t count, loop, rsv[2]; chain_row_t row[CHAIN_ROWS]; } chain_config_v1_t;
+typedef struct {
+    int8_t transpose;
+    uint8_t offset, length, mutes;
+    uint16_t bpm;
+    uint8_t loop_count, jump; /* jump: 0 next, 1..16 destination; count: extra jumps, 0 infinite */
+} chain_row_options_t;
+typedef struct {
+    uint8_t count, loop, rsv[2]; /* rsv[0]: built-in demo sources */
+    chain_row_t row[CHAIN_ROWS];
+    chain_row_options_t options[CHAIN_ROWS];
+} chain_config_t;
+_Static_assert(sizeof(chain_config_v1_t)==36 && sizeof(chain_config_t)==164,"SONG wire layout");
 typedef struct {                           /* a slot as its rows play it */
     const step_t *step[NTRK];
     const seq_options_t *seq;
@@ -34,6 +45,8 @@ static struct {
     chain_src_t src[8];                    /* the slots (chain_prepare) */
     seq_options_t keep_seq[NTRK];
     pattern_options_t keep_options;
+    uint8_t keep_mutes, loop_left[CHAIN_ROWS];
+    int16_t keep_bpm;
     int16_t keep[NTRK][4];                 /* the timing before the song (STOP puts it back) */
     volatile uint8_t armed, running;       /* PLAY on SONG: armed until seq_start takes it; running */
     uint8_t row, left, ref, slot;          /* the row playing, its repeats left (this one too), its longest track, slot */
@@ -45,11 +58,16 @@ static struct {
 static int chain_valid(const chain_config_t *c)
 {
     uint32_t i;
-    if (c->count > CHAIN_ROWS || c->loop > 1u)
+    if (c->count > CHAIN_ROWS || c->loop > 1u || c->rsv[0]>1 || c->rsv[1])
         return 0;
-    for (i = 0; i < c->count; i++)
-        if (c->row[i].slot > 7u || !c->row[i].repeat || c->row[i].repeat > 16u)
+    for (i = 0; i < c->count; i++) {
+        const chain_row_options_t *o=&c->options[i];
+        if (c->row[i].slot > (c->rsv[0]?1u:7u) || !c->row[i].repeat || c->row[i].repeat > 16u ||
+            o->transpose < -48 || o->transpose > 48 || o->offset>=NSTEP || o->length>NSTEP ||
+            o->mutes>=1u<<NTRK || (o->bpm && (o->bpm<40 || o->bpm>240)) ||
+            o->loop_count>16 || o->jump>c->count)
             return 0;
+    }
     return 1;
 }
 static int chain_busy(void) { return chain.running || chain.armed; }
@@ -75,6 +93,16 @@ static const step_t *seq_steps(const track_t *t)   /* the steps a track plays: a
 {
     return chain.running ? chain.src[chain.slot].step[t - trk] : t->step;
 }
+static uint32_t seq_source_length(const track_t *t)
+{return (unsigned)clamp(chain.running?chain.src[chain.slot].timing[t-trk][0]:t->p[P_SLEN],1,NSTEP);}
+static uint32_t seq_source_index(const track_t *t,uint32_t step)
+{
+    if(!chain.running)return step;
+    unsigned len=seq_source_length(t);
+    return (step+chain.cfg.options[chain.row].offset)%len;
+}
+static const step_t *seq_step_at(const track_t *t,uint32_t step)
+{return &seq_steps(t)[seq_source_index(t,step)];}
 #define B24_WRAP 768u                              /* a multiple of 24 and of every division's two steps in 1/24 beats */
 static uint32_t step24(uint32_t div, uint32_t *den)   /* a step of DIV div in 1/24 beats (1/32: 3 .. 4BAR: 384) */
 {
@@ -93,9 +121,12 @@ static void chain_apply(uint32_t x)                /* row chain.row starts x sam
     chain.left = chain.cfg.row[chain.row].repeat;
     chain.swing_end_count=0xFFFFFFFFu;
     s = &chain.src[chain.slot];
+    const chain_row_options_t *o=&chain.cfg.options[chain.row];
+    if(o->bpm)song.g[G_BPM]=o->bpm;
     mo.src = s->m ? s->m : &MOTION_NONE;
     mo.model = s->model;
     song.seq=s->options?*s->options:(pattern_options_t){0};
+    song.seq.transpose=(int8_t)(song.seq.transpose+o->transpose);
     for (k = 0; k < NTRK; k++) {
         track_t *t = &trk[k];
         uint32_t n, d;
@@ -103,6 +134,8 @@ static void chain_apply(uint32_t x)                /* row chain.row starts x sam
         motion_restore(k);                         /* the last row's motion off (motion.c) */
         for (j = 0; j < 4u; j++)
             t->p[CHAIN_TIMING[j]] = s->timing[k][j];
+        if(o->length)t->p[P_SLEN]=o->length;
+        t->p[P_MUTE]=(int16_t)(((chain.keep_mutes|o->mutes)>>k)&1u);
         t->seq_idx = (uint16_t)(t->p[P_SLEN] - 1);
         t->seq_pos = 0x7FFFFFFFu - x;              /* step 0, x samples into the block (seq_tick, chain.cut) */
         t->seq_cnt = 0xFFFFFFFFu;
@@ -129,6 +162,8 @@ static void chain_start(void)                      /* seq_start: an armed song f
         return;
     if (!chain.running) {
         chain.keep_options=song.seq;
+        chain.keep_bpm=song.g[G_BPM];chain.keep_mutes=0;
+        for(k=0;k<NTRK;k++)if(trk[k].p[P_MUTE])chain.keep_mutes|=(uint8_t)(1u<<k);
         for(k=0;k<NTRK;k++)chain.keep_seq[k]=trk[k].seq;
         for (k = 0; k < NTRK; k++)
             for (j = 0; j < 4u; j++)
@@ -140,6 +175,8 @@ static void chain_start(void)                      /* seq_start: an armed song f
     chain.running = 1;
     chain.row = 0;
     chain.b24 = 0;
+    song.g[G_BPM]=chain.keep_bpm;
+    for(k=0;k<CHAIN_ROWS;k++)chain.loop_left[k]=chain.cfg.options[k].loop_count;
     chain_apply(0);
 }
 static void chain_stop(void)                       /* seq_stop: the timing and REC back */
@@ -150,6 +187,8 @@ static void chain_stop(void)                       /* seq_stop: the timing and R
         return;
     chain.running = 0;
     song.seq=chain.keep_options;
+    song.g[G_BPM]=chain.keep_bpm;
+    for(k=0;k<NTRK;k++)trk[k].p[P_MUTE]=(int16_t)((chain.keep_mutes>>k)&1u);
     for(k=0;k<NTRK;k++)trk[k].seq=chain.keep_seq[k];
     for (k = 0; k < NTRK; k++)
         for (j = 0; j < 4u; j++)
@@ -184,10 +223,18 @@ static void chain_tick(uint32_t n)
         chain.left--;
         return;
     }
-    if (chain.row + 1u < chain.cfg.count)
+    const chain_row_options_t *o=&chain.cfg.options[chain.row];
+    if(o->jump && (!o->loop_count || chain.loop_left[chain.row])) {
+        unsigned dest=o->jump-1u;
+        if(o->loop_count)chain.loop_left[chain.row]--;
+        for(unsigned i=dest;i<chain.row;i++)chain.loop_left[i]=chain.cfg.options[i].loop_count;
+        chain.row=(uint8_t)dest;
+    } else if (chain.row + 1u < chain.cfg.count)
         chain.row++;
-    else if (chain.cfg.loop)
+    else if (chain.cfg.loop) {
         chain.row = 0;
+        for(unsigned i=0;i<CHAIN_ROWS;i++)chain.loop_left[i]=chain.cfg.options[i].loop_count;
+    }
     else {
         seq_stop();
         return;

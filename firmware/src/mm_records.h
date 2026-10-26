@@ -8,7 +8,7 @@
 #ifndef MNM_RECORDS_H
 #define MNM_RECORDS_H
 #define MMR_VERSION 2u
-#define MMR_PATTERN_VERSION 3u
+#define MMR_PATTERN_VERSION 4u
 #define MMR_PATTERN_OLD_SIZE 2704u
 #define MMR_PATTERNS 8u
 #define MMR_KITS 8u
@@ -48,6 +48,31 @@ typedef struct {
     seq_options_t seq[NTRK];
     pattern_options_t options;
 } mmr_pattern_t;
+/* Frozen pattern v3 prefix: v1/v2 end immediately after its 36-byte SONG. */
+typedef struct {
+    uint16_t version;uint8_t used,kit,selected,reserved;char name[12];
+    int16_t g[45],timing[6][5];step_t step[6][64];motion_store_t motion;
+    chain_config_v1_t song;seq_options_t seq[6];pattern_options_t options;
+} mmr_pattern_v3_t;
+_Static_assert(sizeof(mmr_pattern_v3_t)==2906,"old pattern layout");
+_Static_assert(__builtin_offsetof(mmr_pattern_v3_t,seq)==MMR_PATTERN_OLD_SIZE,"old pattern prefix");
+static int mmr_pattern_upgrade(mmr_pattern_t *p,unsigned n)
+{
+    unsigned version=p->version;
+    if(version==MMR_PATTERN_VERSION)return n==sizeof *p;
+    if(version<1||version>3||n!=(version==3?sizeof(mmr_pattern_v3_t):MMR_PATTERN_OLD_SIZE))return 0;
+    if(version==3){
+        uint8_t *dst=(void *)p->seq;
+        const uint8_t *src=(const uint8_t *)p+__builtin_offsetof(mmr_pattern_v3_t,seq);
+        for(unsigned i=sizeof p->seq+sizeof p->options;i-->0;)dst[i]=src[i];
+    }else{
+        if(version==1)for(unsigned k=0;k<NTRK;k++)for(unsigned i=0;i<NSTEP;i++)p->step[k][i].rsv=0;
+        for(unsigned k=0;k<NTRK;k++)seq_options_default(&p->seq[k]);
+        p->options=(pattern_options_t){0};
+    }
+    memset(p->song.options,0,sizeof p->song.options);p->song.rsv[0]=p->song.rsv[1]=0;
+    p->version=MMR_PATTERN_VERSION;return 1;
+}
 typedef struct {uint16_t version,reserved;mmr_kit_t kit[MMR_KITS_PER_OBJECT];} mmr_kits_t;
 typedef struct {uint16_t version,reserved;mmr_sound_t sound[MMR_SOUNDS_PER_OBJECT];} mmr_sounds_t;
 /* Frozen version-one records: convert in scratch, never rewrite on read. */

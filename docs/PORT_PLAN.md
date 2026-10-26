@@ -243,3 +243,17 @@ The complete 0.11 host regression passed in segments (suite-final, rest, ui-rest
 updated navigation fixtures include all nine legacy EDIT pages. The final RING cost and
 MULTI integration checks pass, as do the matching host/WASM simulator and site tests.
 The fixture-only screenshot command was rerun separately with Python and theme_sheet.py.
+
+
+### 1.0.0 RC1 — installed, 2026-10-26
+
+SONG ranges/mutes/tempo/nested jumps, AFTER HOURS demo and confirmed NEW are
+implemented, with MNM8 / pattern-v4 readers preserving older records. Host
+regressions passed in segmented runs, including the final UI, boot, migration,
+save roundtrip and demo traversal checks. Target image: 564232 bytes;
+data+BSS: 96896 bytes; pool: 335264 bytes. Wide-multiply check: 770 products,
+272 inherited hazards, no new hazards. Package SHA and physical save/reboot
+results are in RELEASE_1_0_TESTS.md. Device confirmed MNM1-1.0.0; bank-A copies
+both committed and survived reboot, bank B unchanged. Earlier owner SAVE ERROR
+not reproduced; no physical root-cause claim. Public release remains 0.11.0
+pending the remaining device checks. No expanded-library migration yet.

@@ -33,11 +33,8 @@ static int mmlib_read(unsigned id,void *out,unsigned bytes)
     int n=mms_read_object(&mmlib_store,id,out,bytes);
     if(id<MMR_PATTERNS&&bytes==sizeof(mmr_pattern_t)&&n>0){
         mmr_pattern_t *p=out;
-        if(n==MMR_PATTERN_OLD_SIZE&&(p->version==1||p->version==2)){
-            if(p->version==1)for(unsigned k=0;k<NTRK;k++)for(unsigned i=0;i<NSTEP;i++)p->step[k][i].rsv=0;
-            for(unsigned k=0;k<NTRK;k++)seq_options_default(&p->seq[k]);
-            p->options=(pattern_options_t){0};p->version=MMR_PATTERN_VERSION;n=(int)bytes;
-        }else if(n!=(int)bytes||p->version!=MMR_PATTERN_VERSION)return MMS_CORRUPT;
+        if(!mmr_pattern_upgrade(p,(unsigned)n))return MMS_CORRUPT;
+        n=(int)bytes;
     }
     if(id>=8&&id<16&&n>0){
         if(!mmr_group_upgrade(out,(unsigned)n,id<12))return MMS_CORRUPT;

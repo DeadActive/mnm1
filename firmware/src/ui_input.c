@@ -382,6 +382,13 @@ static void motion_page_edit(uint32_t slot, int32_t steps)
 static void song_edit(uint32_t slot, int32_t steps)
 {
     chain_config_t *c = &chain.cfg;
+    unsigned page=cur_page()->half;
+    if(page==4){
+        if(steps>0 && slot<2 && !song_lock()){
+            ui.confirm=slot?8:7;ui.force=1;
+        }
+        return;
+    }
     uint32_t r;
     if (ui.song_row > c->count)                       /* (a LOAD brought a shorter song) */
         ui.song_row = c->count;
@@ -392,19 +399,38 @@ static void song_edit(uint32_t slot, int32_t steps)
     }
     if (song_lock())
         return;
+    if(page && r<c->count){
+        chain_row_options_t *o=&c->options[r];
+        if(page==1){
+            if(slot==1)o->transpose=(int8_t)clamp(o->transpose+steps,-48,48);
+            if(slot==2)o->offset=(uint8_t)clamp(o->offset+steps,0,NSTEP-1);
+            if(slot==3)o->length=(uint8_t)clamp(o->length+steps,0,NSTEP);
+        }else if(page==2){
+            if(slot==1)ui.song_mute_track=(uint8_t)clamp(ui.song_mute_track+steps,0,NTRK-1);
+            if(slot==2){unsigned bit=1u<<ui.song_mute_track;o->mutes=(uint8_t)(steps>0?o->mutes|bit:o->mutes&~bit);}
+            if(slot==3){int v=o->bpm;if(!v&&steps>0)v=39;v+=steps;o->bpm=(uint16_t)(v<40?0:clamp(v,40,240));}
+        }else if(page==3){
+            if(slot==1)o->jump=(uint8_t)clamp(o->jump+steps,0,c->count);
+            if(slot==2)o->loop_count=(uint8_t)clamp(o->loop_count+steps,0,16);
+            if(slot==3)c->loop=steps>0;
+        }
+        return;
+    }
+    if(page)return;
     if (slot == 3u) {
         c->loop = steps > 0;
         return;
     }
     if (r >= c->count) {                              /* the + row: a row at the end */
         r = c->count;
+        memset(&c->options[r],0,sizeof c->options[r]);
         c->row[r].slot = r ? c->row[r - 1u].slot : 0u;
         c->row[r].repeat = 1;
         c->count = (uint8_t)(r + 1u);
         return;
     }
     if (slot == 1u)
-        c->row[r].slot = (uint8_t)clamp((int32_t)c->row[r].slot + steps, 0, full_user.get?7:3);
+        c->row[r].slot = (uint8_t)clamp((int32_t)c->row[r].slot + steps, 0, c->rsv[0]?1:full_user.get?7:3);
     else
         c->row[r].repeat = (uint8_t)clamp((int32_t)c->row[r].repeat + steps, 1, 16);
 }
@@ -980,15 +1006,27 @@ static void ui_input(void)
             m[0] = (char)('1' + ui.confirm_trk);
             if (ui.confirm == 3u) {                     /* SONG: the row out, the later ones up */
                 uint32_t r = ui.confirm_trk, j;
-                for (j = r; j + 1u < chain.cfg.count; j++)
+                for (j = r; j + 1u < chain.cfg.count; j++) {
                     chain.cfg.row[j] = chain.cfg.row[j + 1u];
+                    chain.cfg.options[j] = chain.cfg.options[j + 1u];
+                }
                 if (r < chain.cfg.count)
                     chain.cfg.count--;
+                for(j=0;j<chain.cfg.count;j++){
+                    uint8_t *jump=&chain.cfg.options[j].jump;
+                    if(*jump==r+1u)*jump=0;
+                    else if(*jump>r+1u)(*jump)--;
+                }
                 ui_message("ROW DELETED");
             } else if (ui.confirm == 4u) {              /* SONG: no rows */
                 memset(&chain.cfg, 0, sizeof chain.cfg);
                 ui.song_row = 0;
                 ui_message("SONG CLEARED");
+            } else if (ui.confirm == 7u) {
+                if(transport_busy()||chain_busy())ui_message("STOP FIRST");
+                else {init_all();ui_message("NEW SONG");}
+            } else if (ui.confirm == 8u) {
+                demo_song_load();
             } else if (ui.confirm == 5u) {              /* the last project failed to load: forget it (saved) */
                 lastp.set = 0;
                 settings_save();

@@ -1,10 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Drum machine fork: 2026 DEADACTIVE */
-/* Four reset-persistent RAM slots, backed by flash. MNM7 adds performance options; MNM6 compacted parameters to
- * bytes and adds sequencer options. MNM3/4/5/6 flash records compact in place in
+/* Four reset-persistent RAM slots, backed by flash. MNM8 extends song rows; MNM6 compacted parameters to
+ * bytes and adds sequencer options. MNM3/4/5/6/7 flash records compact in place in
  * storage's scratch buffer; old .noinit layouts are ignored across upgrades. */
-#define PROJ_MAGIC 0x374D4E4Du                 /* "MNM7": performance options */
+#define PROJ_MAGIC 0x384D4E4Du                 /* "MNM8": extended song rows */
+#define PROJ_V7_MAGIC 0x374D4E4Du
 #define PROJ_V6_MAGIC 0x364D4E4Du
 #define PROJ_V5_MAGIC 0x354D4E4Du
 #define PROJ_V4_MAGIC 0x344D4E4Du
@@ -13,6 +14,7 @@
 #define PROJ_V3_GLOBALS 41u
 static int expanded_pattern_name(uint32_t slot,char *b);
 static void expanded_pattern_save(uint32_t slot);
+static int project_save_error;
 static uint32_t expanded_chain_prepare(void);
 static int expanded_pattern_load(uint32_t slot,int irq);
 static void expanded_pattern_rename(uint32_t slot,const char *name);
@@ -67,12 +69,12 @@ typedef struct {uint8_t p[97];step_t step[64];} mnm_proj_v6_trk_t;
 typedef struct {
     uint32_t magic,size;int16_t g[45];uint8_t sel,rsv[3];
     mnm_proj_v6_trk_t t[6];uint8_t seq[6][33],options[4];
-    motion_store_t motion;chain_config_t song;char name[12];
+    motion_store_t motion;chain_config_v1_t song;char name[12];
     uint16_t pre[6];uint8_t pre_ed[6];uint32_t sum;
 } mnm_project_v6_t;
 _Static_assert(sizeof(mnm_project_v6_t)==3456,"MNM6 layout changed");
 _Static_assert(__builtin_offsetof(project_t,motion)==__builtin_offsetof(mnm_project_v6_t,motion),"MNM6 prefix moved");
-_Static_assert(__builtin_offsetof(project_t,pre_ed)==__builtin_offsetof(mnm_project_v6_t,pre_ed),"MNM6 tail moved");
+
 /* Fixed old layout: do not use P_COUNT here when adding parameters. */
 typedef struct {
     int16_t p[PROJ_V3_PARAMS];
@@ -84,7 +86,7 @@ typedef struct {
     uint8_t sel, rsv[3];
     mnm_proj_v3_trk_t t[6];
     motion_store_t motion;
-    chain_config_t song;
+    chain_config_v1_t song;
     char name[NAME_LEN];
     uint16_t pre[NTRK];
     uint8_t pre_ed[NTRK];
@@ -94,9 +96,18 @@ typedef struct {
 typedef struct {int16_t p[97];step_t step[64];} mnm_proj_v5_trk_t;
 typedef struct {
     uint32_t magic,size;int16_t g[45];uint8_t sel,rsv[3];
-    mnm_proj_v5_trk_t t[6];motion_store_t motion;chain_config_t song;
+    mnm_proj_v5_trk_t t[6];motion_store_t motion;chain_config_v1_t song;
     char name[12];uint16_t pre[6];uint8_t pre_ed[6];uint32_t sum;
 } mnm_project_v5_t;
+/* Frozen MNM7: its performance suffix is shifted only after validation. */
+typedef struct {
+    uint32_t magic,size;int16_t g[45];uint8_t sel,rsv[3];
+    mnm_proj_v6_trk_t t[6];uint8_t seq[6][33],options[4];
+    motion_store_t motion;chain_config_v1_t song;char name[12];
+    uint16_t pre[6];uint8_t pre_ed[6],perf[6][9],multi[10];uint32_t sum;
+} mnm_project_v7_t;
+_Static_assert(sizeof(mnm_project_v7_t)==3520,"MNM7 layout changed");
+_Static_assert(__builtin_offsetof(project_t,name)==__builtin_offsetof(mnm_project_v7_t,name)+128,"song expansion changed");
 _Static_assert(sizeof(mnm_project_v5_t)==3836,"MNM4/5 layout changed");
 _Static_assert(sizeof(mnm_project_v3_t) == 3624u, "MNM3 layout changed");
 _Static_assert(P_NSTORED >= PROJ_V3_PARAMS, "MNM4 parameter block shrank");
@@ -129,55 +140,80 @@ static void proj_compact_copy(void *dst,const void *src,unsigned n)
 }
 static int proj_options_valid(const project_t *q)
 {
-    if(!pattern_options_valid(&q->options)||!multi_options_valid(&q->multi))return 0;
+    if(!chain_valid(&q->song)||!pattern_options_valid(&q->options)||!multi_options_valid(&q->multi))return 0;
     for(unsigned k=0;k<NTRK;k++)
         if(!seq_options_valid(&q->seq[k])||!perf_options_valid(&q->perf[k]))return 0;
     return 1;
 }
-static void proj_upgrade_performance(project_t *q)
+static void proj_upgrade_performance(mnm_project_v7_t *q)
 {
-    /* The old checksum/padding overlaps the appended fields. Clear all of it. */
-    memset((uint8_t *)q+__builtin_offsetof(project_t,perf),0,
-           sizeof *q-__builtin_offsetof(project_t,perf));
-    multi_options_default(&q->multi);
+    memset((uint8_t *)q+__builtin_offsetof(mnm_project_v7_t,perf),0,
+           sizeof *q-__builtin_offsetof(mnm_project_v7_t,perf));
+    multi_options_t defaults;multi_options_default(&defaults);
+    memcpy(q->multi,&defaults,sizeof defaults);
+}
+static int proj_expand_song(project_t *q)
+{
+    /* Preserve every suffix byte before the new options overwrite its old home. */
+    uint8_t *dst=(uint8_t *)&q->name;
+    const uint8_t *src=(const uint8_t *)q+__builtin_offsetof(mnm_project_v7_t,name);
+    unsigned n=__builtin_offsetof(mnm_project_v7_t,sum)-__builtin_offsetof(mnm_project_v7_t,name);
+    while(n){--n;dst[n]=src[n];}
+    memset(q->song.options,0,sizeof q->song.options);
+    memset(q->song.rsv,0,sizeof q->song.rsv);
+    /* Legacy loads discarded a damaged arrangement while retaining valid notes/sounds. */
+    if(!chain_valid(&q->song))memset(&q->song,0,sizeof q->song);
     q->magic=PROJ_MAGIC;q->size=sizeof *q;q->sum=proj_sum(q);
+    return proj_options_valid(q);
 }
 static int proj_decode(project_t *q,uint32_t n)
 {
+    if(n<8)return 0;
     const mnm_project_v3_t *v3=(const void *)q;
     const mnm_project_v5_t *v5=(const void *)q;
+    mnm_project_v7_t *v7=(void *)q;
     unsigned old3=q->magic==PROJ_V3_MAGIC,old5=q->magic==PROJ_V5_MAGIC;
-    if(n==sizeof *q&&proj_ok(q))return proj_options_valid(q);
-    if(q->magic==PROJ_V6_MAGIC) {
-        const mnm_project_v6_t *v6=(const void *)q;
-        if(n!=sizeof *v6||v6->size!=sizeof *v6||v6->sum!=proj_hash(v6,sizeof *v6-4))return 0;
-        proj_upgrade_performance(q);
+    if(n==sizeof *q&&proj_ok(q)){
+        if(!chain_valid(&q->song)){
+            memset(&q->song,0,sizeof q->song);q->sum=proj_sum(q);
+        }
         return proj_options_valid(q);
     }
-    unsigned oldsize=old3?sizeof *v3:sizeof *v5;
-    if((!old3&&!old5&&q->magic!=PROJ_V4_MAGIC)||n!=oldsize||q->size!=oldsize)return 0;
+    unsigned oldsize;
+    switch(q->magic){
+    case PROJ_V3_MAGIC:oldsize=sizeof *v3;break;
+    case PROJ_V4_MAGIC:case PROJ_V5_MAGIC:oldsize=sizeof *v5;break;
+    case PROJ_V6_MAGIC:oldsize=sizeof(mnm_project_v6_t);break;
+    case PROJ_V7_MAGIC:oldsize=sizeof *v7;break;
+    default:return 0;
+    }
+    if(n!=oldsize||q->size!=oldsize)return 0;
     uint32_t sum;memcpy(&sum,(const uint8_t *)q+oldsize-4,4);
     if(sum!=proj_hash(q,oldsize-4))return 0;
+    if(q->magic==PROJ_V7_MAGIC)return proj_expand_song(q);
+    if(q->magic==PROJ_V6_MAGIC){proj_upgrade_performance(v7);return proj_expand_song(q);}
     uint8_t sel=old3?v3->sel:v5->sel;
+    /* First normalize into the old compact prefix, whose tail has not grown. */
     for(unsigned k=0;k<NTRK;k++) {
         const int16_t *p=old3?v3->t[k].p:v5->t[k].p;
         const step_t *steps=old3?v3->t[k].step:v5->t[k].step;
         uint8_t values[P_COUNT];unsigned model=(unsigned)clamp(p[P_MODEL],0,NMODELS-1);
         for(unsigned i=0;i<P_COUNT;i++)values[i]=proj_byte(model,i,
             i<(old3?80u:97u)?p[i]:TP[i].def);
-        memcpy(q->t[k].p,values,sizeof values);
-        proj_compact_copy(q->t[k].step,steps,sizeof q->t[k].step);
-        if(!old5)for(unsigned i=0;i<NSTEP;i++)q->t[k].step[i].rsv=0;
+        memcpy(v7->t[k].p,values,sizeof values);
+        proj_compact_copy(v7->t[k].step,steps,sizeof v7->t[k].step);
+        if(!old5)for(unsigned i=0;i<NSTEP;i++)v7->t[k].step[i].rsv=0;
     }
     const void *tail=old3?(const void *)&v3->motion:(const void *)&v5->motion;
     unsigned tailsize=__builtin_offsetof(mnm_project_v6_t,sum)-__builtin_offsetof(mnm_project_v6_t,motion);
-    proj_compact_copy(&q->motion,tail,tailsize);
-    if(old3)for(unsigned i=PROJ_V3_GLOBALS;i<G_COUNT;i++)q->g[i]=GP[i].def;
-    q->sel=sel;memset(q->rsv,0,sizeof q->rsv);
-    for(unsigned k=0;k<NTRK;k++)seq_options_default(&q->seq[k]);
-    memset(&q->options,0,sizeof q->options);
-    proj_upgrade_performance(q);
-    return proj_options_valid(q);
+    proj_compact_copy(&v7->motion,tail,tailsize);
+    if(old3)for(unsigned i=PROJ_V3_GLOBALS;i<G_COUNT;i++)v7->g[i]=GP[i].def;
+    v7->sel=sel;memset(v7->rsv,0,sizeof v7->rsv);
+    seq_options_t defaults;seq_options_default(&defaults);
+    for(unsigned k=0;k<NTRK;k++)memcpy(v7->seq[k],&defaults,sizeof defaults);
+    memset(v7->options,0,sizeof v7->options);
+    proj_upgrade_performance(v7);
+    return proj_expand_song(q);
 }
 
 #if FELUCCA_FLASH
@@ -211,6 +247,7 @@ static void proj_name_get(char *d, const char *s)
 
 static void project_save(uint32_t slot)
 {
+    project_save_error=0;
     if(full_user.get){expanded_pattern_save(slot);return;}
     if(slot>=4){ui_message("EMPTY SLOT");return;}
     if (transport_busy()) {                            /* (upstream 1.0) only while stopped */
@@ -242,14 +279,15 @@ static void project_save(uint32_t slot)
     chain.from = (uint8_t)((slot & 3u) + 1u);
 #if FELUCCA_FLASH
     if (flash_ok) {
-        if (st_save(OBJ_PROJECT0 + (slot & 3u), p, sizeof *p)) {
+        if ((project_save_error=st_save(OBJ_PROJECT0 + (slot & 3u), p, sizeof *p))!=0) {
             ui_message("SAVE ERROR");
             return;
         }
         lastp.set = 1;                                  /* the last project: power-on loads it (spec 2026-10-11 §6) */
         lastp.slot = (uint8_t)(slot & 3u);
         settings_save();                                /* (stopped: now; unchanged: nothing written) */
-        ui_message("SAVED");
+        project_save_error=settings_save_error;
+        ui_message(settings_save_error?"SAVED; BOOT ERROR":"SAVED");
         return;
     }
 #endif
@@ -287,7 +325,7 @@ static int proj_load(uint32_t slot, int irq)
             ui_message("EMPTY SLOT");
         return 0;
     }
-    if(!proj_options_valid(p))return 0;
+    if(!proj_decode(p,sizeof *p))return 0;
     transport_req = 2;
     if (irq)
         fm1_irq_off();                                  /* the audio ISR must not see half a project */
@@ -664,12 +702,13 @@ static void project_rename(uint32_t slot, const char *name)   /* only the name; 
  * inside the ranges, a broken motion plays none */
 static uint32_t chain_prepare(void)
 {
-    if(full_user.get)return expanded_chain_prepare();
     uint32_t i, k, j, used = 0;
     if (transport_busy() || chain_busy())
         return 2;
     if (!chain.cfg.count || !chain_valid(&chain.cfg))
         return 1;
+    if(chain.cfg.rsv[0])return demo_song_prepare();
+    if(full_user.get)return expanded_chain_prepare();
     for (i = 0; i < chain.cfg.count; i++) {
         uint32_t s = chain.cfg.row[i].slot;
         if (!project_used(s))
@@ -700,6 +739,7 @@ static uint32_t chain_prepare(void)
 
 static void settings_save(void)                    /* asked for while playing: written once stopped (settings_poll) */
 {
+    settings_save_error=0;
     if (transport_busy()) {
         ui.persist_pending = 1;
         return;
@@ -721,7 +761,7 @@ static void settings_save(void)                    /* asked for while playing: w
     p.panel = panel;
     if (!memcmp(&p, &persist_saved, sizeof p))
         return;
-    if (st_save(OBJ_SETTINGS, &p, sizeof p) == 0)
+    if ((settings_save_error=st_save(OBJ_SETTINGS, &p, sizeof p)) == 0)
         persist_saved = p;
 #endif
 }

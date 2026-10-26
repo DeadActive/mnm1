@@ -99,7 +99,7 @@ static void test_split(void)
     pattern.kit=7;pattern.timing[0][1]=0;assert(!mmr_pattern_valid(&pattern));pattern.timing[0][1]=16;
     pattern.motion.count=MOTION_MAX+1;assert(!mmr_pattern_valid(&pattern));pattern.motion.count=1;
     pattern.g[G_BPM]=0;assert(!mmr_pattern_valid(&pattern));pattern.g[G_BPM]=120;
-    pattern.version=4;assert(!mmr_pattern_valid(&pattern));pattern.version=MMR_PATTERN_VERSION;
+    pattern.version=MMR_PATTERN_VERSION+1;assert(!mmr_pattern_valid(&pattern));pattern.version=MMR_PATTERN_VERSION;
     kit.config[5][4]=999;assert(!mmr_kit_apply(trk,&kit));assert(!memcmp(before,trk,sizeof before));kit.config[5][4]=2;
 }
 static void test_blocks(void)

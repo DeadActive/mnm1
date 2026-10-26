@@ -883,21 +883,19 @@ static int32_t pr_row_y(int32_t n) { return PR_Y0 + ((int32_t)proll.lo + PR_ROWS
 /* the step whose note sounds at si: si when ON, the ON step before a run of TIEs (NSTEP: none) */
 static uint32_t pr_src(const track_t *t, uint32_t si, uint32_t len)
 {
-    const step_t *st = seq_steps(t);
     uint32_t k;
-    for (k = 0; k < len && st[si].tie; k++)
+    for (k = 0; k < len && seq_step_at(t,si)->tie; k++)
         si = (si + len - 1u) % len;
-    return st[si].on && !st[si].tie ? si : NSTEP;
+    return seq_step_at(t,si)->on && !seq_step_at(t,si)->tie ? si : NSTEP;
 }
 
 /* the bank's sounding notes into nn (a TIE: its source's, pr_src); their count */
 static uint32_t pr_notes(const track_t *t, int32_t *nn)
 {
-    const step_t *st = seq_steps(t);
     uint32_t i, s, n = 0, len = view_len(t), base = ui.bank * 16u;
     for (i = 0; i < 16u && base + i < len; i++)
         if ((s = pr_src(t, base + i, len)) != NSTEP)
-            nn[n++] = 60 + st[s].nt;
+            nn[n++] = 60 + seq_step_at(t,s)->nt;
     return n;
 }
 static uint32_t pr_count(const int32_t *nn, uint32_t n, int32_t lo)   /* the notes in the window from lo */
@@ -932,7 +930,7 @@ static void roll_view(const track_t *t)
         lo = proll.lo;                                /* as good as the best: no jump */
     if (ui.srec) {
         s = ui.sr_cur < len ? pr_src(t, ui.sr_cur, len) : NSTEP;
-        cn = s == NSTEP ? 0 : 60 + seq_steps(t)[s].nt;
+        cn = s == NSTEP ? 0 : 60 + seq_step_at(t,s)->nt;
         if (cur && (s == NSTEP || (cn >= proll.lo && cn < proll.lo + PR_ROWS)))
             lo = proll.lo;                            /* the cursor's note in the view, or a rest: no move */
         else if (s != NSTEP && cn < lo)
@@ -980,7 +978,6 @@ static void pr_bar(int32_t x, int32_t y, int32_t w, int acc, uint16_t c, uint32_
 
 static void graph_roll(const track_t *t, uint16_t c)
 {
-    const step_t *st = seq_steps(t);
     uint32_t i, len = view_len(t), base = ui.bank * 16u, ncol = base < len ? (len - base < 16u ? len - base : 16u) : 0u;
     int32_t r, ybot = PR_Y0 + PR_ROWS * PR_RH, gw = (int32_t)ncol * PR_CW + 1;
     int32_t gx1 = PR_X0 + (int32_t)ncol * PR_CW, top = (int32_t)proll.lo + PR_ROWS - 1;
@@ -1005,11 +1002,11 @@ static void graph_roll(const track_t *t, uint16_t c)
         cv_vdot(PR_X0 + (int32_t)i * PR_CW, PR_Y0, ybot - 1, C_INK);
     for (i = 0; i < ncol; i++) {                      /* the notes */
         uint32_t si = base + i, s = pr_src(t, si, len);
-        const step_t *own = &st[si], *ns = &st[(si + 1u) % len], *ss;
+        const step_t *own = seq_step_at(t,si), *ns = seq_step_at(t,(si + 1u) % len), *ss;
         int32_t x = PR_X0 + (int32_t)i * PR_CW, y;
         if (s == NSTEP)
             continue;                                 /* a rest, empty, or a TIE after one */
-        ss = &st[s];
+        ss = seq_step_at(t,s);
         y = pr_row_y(60 + ss->nt);
         if (s == si)
             pr_bar(x + 2, y, 9, ss->acc, c, ss->rat + 1u, ss->cond != 0u);
@@ -1961,12 +1958,13 @@ static void graph_motion(void)
     const track_t *t = TSEL;
     uint32_t k = song.sel, len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), i, sig, n = 0, nw, wi;
     uint32_t has[2] = {0, 0}, ph = song.playing ? t->seq_idx % len : 0xFFu;
-    for (i = 0; i < mo.s.count; i++)
-        if (mo.s.ev[i].trk == k) {
-            has[mo.s.ev[i].step >> 5] |= 1u << (mo.s.ev[i].step & 31u);
-            n++;
-        }
-    sig = has[0] * 31u + has[1] * 131u + len * 7u + ph * 1009u + k * 65537u + n * 3u + (uint32_t)motion_on(k);
+    for(i=0;i<len;i++){
+        unsigned count=view_lock_count(k,i);
+        if(count)has[i>>5]|=1u<<(i&31u);
+        n+=count;
+    }
+    unsigned enabled=(view_motion()->on>>k)&1u;
+    sig = has[0] * 31u + has[1] * 131u + len * 7u + ph * 1009u + k * 65537u + n * 3u + enabled;
     for (nw = rg_plan(&ui.graph_sig, sig, 0, Y_GRAPH, 240, H_GRAPH), wi = 0; wi < nw; wi++) {
         rg_win(wi, Y_GRAPH, C_BG);
         cv_oy = 0;
@@ -1975,7 +1973,7 @@ static void graph_motion(void)
             int32_t x = 8 + (int32_t)(i & 15u) * 14, y = 8 + (int32_t)(i >> 4) * 28;
             int ev = (int)((has[i >> 5] >> (i & 31u)) & 1u);
             cv_frame(x, y, 12, 22, C_INK);
-            if (ev && motion_on(k))
+            if (ev && enabled)
                 cv_rect(x + 2, y + 2, 8, 18, C_INK);
             else if (ev)
                 cv_dither(x + 2, y + 2, 8, 18, C_INK);
@@ -1992,8 +1990,10 @@ static void motion_columns(void)
 {
     char val[12];
     uint32_t k = song.sel;
-    draw_column(0, "PLAY", motion_on(k) ? "ON" : "OFF", "", HOT(0u), -1);
-    fmt_int(val, (int32_t)motion_count(k));
+    draw_column(0, "PLAY", (view_motion()->on>>k)&1u ? "ON" : "OFF", "", HOT(0u), -1);
+    unsigned count=motion_count(k);
+    if(chain.running){count=0;for(unsigned i=0;i<view_len(TSEL);i++)count+=view_lock_count(k,i);}
+    fmt_int(val, (int32_t)count);
     draw_column(1, "EVENT", val, "", CV_NORM, -1);
     draw_column(2, "", "", "", CV_NORM, -1);
     draw_column(3, "CLEAR", "", "", CV_NORM, -1);
@@ -2045,6 +2045,8 @@ static void graph_song(void)
                 fmt_int(b, chain.left);
                 str_cpy(b + str_len(b), " LEFT", 8);
                 md_text(234 - md_text_w(&MD_F3, 2, b), y, &MD_F3, 2, b, pen);
+            } else if (c->rsv[0]) {
+                md_text(108,y,&MD_F3,2,c->row[i].slot?"DEMO B":"DEMO A",pen);
             } else if (project_name(c->row[i].slot, nm) && nm[0]) {
                 char f[NAME_LEN + 1u];
                 md_fit(f, nm, sizeof f, 124);
@@ -2065,6 +2067,39 @@ static void song_columns(void)
     const chain_config_t *c = &chain.cfg;
     uint32_t r = ui.song_row < c->count ? ui.song_row : c->count;
     char v[12], u[8];
+    unsigned page=cur_page()->half;
+    if(page==4){
+        draw_column(0,"NEW","TURN","",HOT(0),-1);
+        draw_column(1,"DEMO","TURN","",HOT(1),-1);
+        draw_column(2,"","","",CV_DIM,-1);draw_column(3,"","","",CV_DIM,-1);return;
+    }
+    if(page){
+        if(r>=c->count){
+            draw_column(0,"ROW","+","",HOT(0),-1);
+            for(unsigned i=1;i<4;i++)draw_column(i,"","--","",CV_DIM,-1);
+            return;
+        }
+        const chain_row_options_t *o=&c->options[r];
+        fmt_int(v,r+1);draw_column(0,"ROW",v,"",HOT(0),-1);
+        if(page==1){
+            fmt_int(v,o->transpose);draw_column(1,"TRANS",v,"",HOT(1),-1);
+            fmt_int(v,o->offset);draw_column(2,"OFFSET",v,"",HOT(2),-1);
+            if(o->length)fmt_int(v,o->length);else str_cpy(v,"AUTO",sizeof v);
+            draw_column(3,"LENGTH",v,"",HOT(3),-1);
+        }else if(page==2){
+            fmt_int(v,ui.song_mute_track+1);draw_column(1,"TRACK",v,"",HOT(1),-1);
+            draw_column(2,"MUTE",o->mutes&(1u<<ui.song_mute_track)?"ON":"OFF","",HOT(2),-1);
+            if(o->bpm)fmt_int(v,o->bpm);else str_cpy(v,"KEEP",sizeof v);
+            draw_column(3,"BPM",v,"",HOT(3),-1);
+        }else{
+            if(o->jump)fmt_int(v,o->jump);else str_cpy(v,"NEXT",sizeof v);
+            draw_column(1,"JUMP",v,"",HOT(1),-1);
+            if(o->loop_count)fmt_int(v,o->loop_count);else str_cpy(v,"INF",sizeof v);
+            draw_column(2,"COUNT",v,"",HOT(2),-1);
+            draw_column(3,"LOOP",c->loop?"ON":"OFF","",HOT(3),-1);
+        }
+        return;
+    }
     if (r >= c->count) {
         draw_column(0, "ROW", "+", "", HOT(0u), -1);
         draw_column(1, "SLOT", "--", "", CV_DIM, -1);
@@ -2250,7 +2285,7 @@ static void draw_graph(void)
 static int foot_note(char *b)
 {
     const track_t *t = TSEL;
-    const step_t *st = seq_steps(t), *s;
+    const step_t *s;
     uint32_t si, src, len = view_len(t);
     b[0] = 0;
     if (ui.srec)
@@ -2259,7 +2294,7 @@ static int foot_note(char *b)
         si = held_step();
     else
         return 0;
-    s = &st[si];
+    s = seq_step_at(t,si);
     if (!s->on && !s->tie)
         return 0;
     if (s->tie) {
@@ -2268,7 +2303,7 @@ static int foot_note(char *b)
             str_cpy(b, "TIE", 4);
             return 1;
         }
-        note_text(b, 60 + st[src].nt);
+        note_text(b, 60 + seq_step_at(t,src)->nt);
         str_cpy(b + str_len(b), " TIE", 6);
         return 1;
     }
@@ -2355,7 +2390,7 @@ static void draw_foot(void)
         if (si >= len)
             break;
         sv = view_step(t, si);
-        if (lock_count_step(song.sel, si))            /* MNM-1: a step with locks: a mark under its box */
+        if (view_lock_count(song.sel, si))            /* MNM-1: a step with locks: a mark under its box */
             lkm |= 1u << i;
         on |= (uint32_t)sv.on << i;
         acc |= (uint32_t)(sv.on && sv.acc) << i;
@@ -2841,6 +2876,10 @@ __attribute__((always_inline)) static inline void ui_draw(void)
                 str_cpy(b + str_len(b), "?", 4);
             } else if (ui.confirm == 4u) {
                 str_cpy(b, "CLEAR SONG?", sizeof b);
+            } else if (ui.confirm == 7u) {
+                str_cpy(b,"NEW SONG?",sizeof b);
+            } else if (ui.confirm == 8u) {
+                str_cpy(b,"LOAD DEMO?",sizeof b);
             } else if (ui.confirm == 6u) {              /* MIDI LEARN (ui_learn.c ML_CONFIRM) */
                 str_cpy(b, "CLEAR ALL LEARNED?", sizeof b);
             } else if (ui.confirm == 5u) {              /* the power-on load failed (project.c project_boot) */
@@ -2855,7 +2894,7 @@ __attribute__((always_inline)) static inline void ui_draw(void)
             draw_columns();
             draw_graph();
             draw_foot();
-            draw_confirm(b, ui.confirm == 5u ? "START NEW PROJECT?" : 0);
+            draw_confirm(b, ui.confirm == 5u ? "START NEW PROJECT?" : ui.confirm>=7u ? "REPLACE UNSAVED WORK?" : 0);
             ui.force = 0;
         }
         return;

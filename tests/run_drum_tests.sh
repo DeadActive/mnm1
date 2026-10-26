@@ -11,6 +11,8 @@ PY="${PYTHON:-python3}"
 "$PY" tools/gen_presets.py --check                 # firmware/src/preset_bank.h = tools/presets.json
 OUT=build/host
 mkdir -p "$OUT"
+cc -O2 -Wall -Wextra tests/storage_test.c -o "$OUT/storage_test"
+"$OUT/storage_test"
 cc -O2 -Wall -Wno-unused-function -Wno-int-to-pointer-cast -Wno-macro-redefined -Ibuild/gen -Ifirmware/src -o "$OUT/drum_test" tests/drum_test.c -lm
 "$OUT/drum_test"
 cc -O2 -Wall -Wno-unused-function -Wno-int-to-pointer-cast -Wno-macro-redefined -Ibuild/gen -Ifirmware/src -o "$OUT/sound_pack_test" tests/sound_pack_test.c -lm
@@ -75,7 +77,7 @@ for test in delay_port controls_port engine_port lfo_port lfo_integration; do
     cc -O2 -Wall -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=all "tests/${test}_test.c" -o "$OUT/${test}_test" -lm
     "$OUT/${test}_test"
 done
-for test in performance_options performance_ui performance_pages controller_mod filter_tracking trig_route multi_runtime multi_integration project_migration fullpreset busfx_integration calibrated_mix live_calibrated format_port trig_lanes seq_options arp_manual fractional_speed swing_mask song_swing seq_pages transpose; do
+for test in performance_options performance_ui performance_pages controller_mod filter_tracking trig_route multi_runtime multi_integration project_migration song_options demo_song save_roundtrip fullpreset busfx_integration calibrated_mix live_calibrated format_port trig_lanes seq_options arp_manual fractional_speed swing_mask song_swing seq_pages transpose; do
     cc -O1 -g -fsanitize=address,undefined -fno-sanitize=shift-base -fno-sanitize-recover=all -Wno-int-to-pointer-cast -Wno-macro-redefined -Ibuild/gen -Ifirmware/src "tests/${test}_test.c" -o "$OUT/${test}_test" -lm
     "$OUT/${test}_test"
 done

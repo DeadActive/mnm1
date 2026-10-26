@@ -103,6 +103,7 @@ static struct {
     uint8_t pg_open, pg_page, pg_home;   /* PERFORM PAGE: the screen open; the page / HOME under it when it opened */
     uint32_t glo_t0;             /* GLO's press time | GLO_DOWN OPEN DEAD PLAIN (ui_input.c glo_input) */
     uint8_t mute;                /* the MUTE screen shows (GLO held, spec §5) */
+    uint8_t song_mute_track;
     uint8_t song_row;            /* SONG: the row selected (count = the + row) */
     uint8_t keys;                /* KEYS (spec §5): an SCL tap; off at power-on, never stored */
     uint8_t lk;                  /* MNM-1: the 8-knob pages' LOCK mode (entered from STEP with a step held): the keys
@@ -350,7 +351,7 @@ static void page_turn(int32_t dir)
     i = ui.page;
     do
         i = dir > 0 ? i + 1u : i - 1u;                /* (below 0: wraps above NPAGES, out of the section) */
-    while (i < NPAGES && PAGES[i].fam == fam && page_hidden(i));
+    while (i < NPAGES && (PAGES[i].fam != fam || page_hidden(i)));
     if (i < NPAGES && PAGES[i].fam == fam) {
         ui.page = (uint8_t)i;
         ui.fam_last[fam] = ui.page;
@@ -374,11 +375,18 @@ static step_t view_step(const track_t *t, uint32_t si)
     uint32_t s = view_src(t), b;
     step_t r = {0};
     if (!s)
-        return seq_steps(t)[si % NSTEP];             /* (a song: its row's) */
+        return *seq_step_at(t,si % NSTEP);             /* (a song: its row's) */
     b = grids_preview(s - 1u, si);
     r.on = (uint8_t)(b & 1u);
     r.acc = (uint8_t)((b >> 1) & 1u);
     return r;
+}
+static const motion_store_t *view_motion(void){return chain.running&&mo.src?mo.src:&mo.s;}
+static uint32_t view_lock_count(unsigned k,unsigned step)
+{
+    const motion_store_t *m=view_motion();unsigned count=0,source=seq_source_index(&trk[k],step);
+    for(unsigned i=0;i<m->count;i++)count+=m->ev[i].trk==k&&m->ev[i].step==source;
+    return count;
 }
 static uint32_t view_idx(const track_t *t) { uint32_t s = view_src(t); return s ? grids_pos(s - 1u) : t->seq_idx; }
 
@@ -541,6 +549,8 @@ static void init_all(void)
     ui.song_row = 0;
     ui.force = 1;
 }
+
+#include "demo_song.h"
 
 /* track k muted / unmuted (MUTE: NOW, or NEXT BAR); a mute also cuts what it is playing (declicked, in the ISR) */
 static void track_mute_toggle(uint32_t k)

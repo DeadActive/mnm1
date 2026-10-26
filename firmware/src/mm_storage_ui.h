@@ -19,7 +19,8 @@ static void expanded_pattern_save(uint32_t slot)
     if(transport_busy()){ui_message("STOP TO SAVE");return;}
     int rc=library_save_pattern(slot,(unsigned)song.act[G_KSLOT-G_COUNT]-1);
     if(!rc){chain.from=(uint8_t)(slot+1);lastp.set=1;lastp.slot=(uint8_t)slot;settings_save();}
-    ui_message(rc?"SAVE ERROR":"SAVED");
+    project_save_error=rc?rc:settings_save_error;
+    ui_message(rc?"SAVE ERROR":settings_save_error?"SAVED; BOOT ERROR":"SAVED");
 }
 static int expanded_kit_allowed(void)
 {

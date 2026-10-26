@@ -84,6 +84,7 @@ static const char *const BL_NAME[BL_COUNT] = {"OFF", "DIM LO", "DIM HI", "INV", 
 static uint32_t backlight;
 
 static void settings_save(void);
+static int settings_save_error;
 static void settings_poll(void);              /* project.c */              /* project.c: flash copy (FELUCCA_FLASH) */
 
 static void settings_init(void)

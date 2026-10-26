@@ -21,13 +21,17 @@ Some heavy combinations exceed the audio deadline. This remains a beta release.
 - MULTI TRIG: all tracks, split keyboard, sequence restart/transpose, timing and shared envelope.
 - Two velocity and two keytrack assignments per track; independent HP/LP keytracking switches.
 
-## Next: 1.0 — SONG
+## Candidate: 1.0 — final device tests pending
 
 - Song rows with transpose, offset, length, mutes and tempo.
-- Nested loops and jumps, followed by integration and hardware validation.
+- Counted nested loops and jumps, implemented with host integration coverage.
 - A musical demo SONG with kick, snare, melody, parameter locks and audible phaser/FX transitions.
 - An accessible NEW SONG action to leave the demo and start an empty arrangement without erasing saved work;
   the demo remains available to load again.
+
+The 1.0 code is prepared on its release branch. Release remains gated on final hardware playback,
+slot-A save/readback/reboot verification and expanded-library migration. The owner reported a save
+error in 0.11; software fault tests cannot establish its hardware cause.
 
 The optional items below are outside the planned 1.0 release. Missing source features, including VOX
 consonants, still require implementation and validation; they are not claimed as imported.

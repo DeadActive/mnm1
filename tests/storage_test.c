@@ -133,11 +133,13 @@ int main(void)
         bad += check("every payload/header byte cut keeps old data", ok);
         erase_error = 1;
         ok = st_save(OBJ_PROJECT0, a, sizeof a) != 0;
+        ok &= st_last_save.error==-8 && st_last_save.stage==2 && st_last_save.obj==OBJ_PROJECT0;
         erase_error = 0;
         bad += check("erase failure keeps old data", ok && st_load(OBJ_PROJECT0, got, sizeof got) == (int)sizeof b &&
                                                       !memcmp(got, b, sizeof b));
         write_protected = 1;
         ok = st_save(OBJ_PROJECT0, a, sizeof a) != 0;
+        ok &= st_last_save.error==-7 && st_last_save.stage==5 && st_last_save.address>=0x97000u;
         write_protected = 0;
         bad += check("write protection is a save error", ok && st_load(OBJ_PROJECT0, got, sizeof got) == (int)sizeof b &&
                                                             !memcmp(got, b, sizeof b));

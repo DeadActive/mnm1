@@ -174,12 +174,13 @@
   <article class="doc-block" aria-labelledby="m-seq">
     <h3 id="m-seq">Sequencer and parameter locks</h3>
     <p><b>SEQ</b> puts the selected track's steps on the 16 white keys: tap a key to turn a step on or off. Press SEQ
-      again for PATTERN (length, speed, swing, gate), MOTION, SONG, SWING MASK and TRANSPOSE. OCT− and OCT+ change the bank of 16 steps
+      again for PATTERN (length, speed, swing, gate), MOTION, SONG, SWING MASK, TRANSPOSE and the SONG detail pages. OCT− and OCT+ change the bank of 16 steps
       (up to 64).</p>
     <ul class="doc-list">
       <li><b>Trig lanes:</b> STEP knob 2 selects ALL, AMP, FILTER or LFO. Hold a step and turn SELECT to choose its trig type, including trigless and note-off.</li>
       <li><b>Timing:</b> SWING MASK sets a 50–80 amount and the delayed steps; 0 retains legacy swing. PATTERN adds 3/4X and 3/2X speeds. TRANSPOSE sets track amount, scale, key and pattern amount.</li>
       <li><b>ARP:</b> ARP MODE adds KEY, SID and ADD with five playback orders. ARP TRIG sets octave jump and retrigger switches; ARP RHYTHM edits a 16-step rhythm and note offsets.</li>
+      <li><b>SONG:</b> RANGE sets transpose, source offset and length (AUTO keeps each track length); MIX sets row mutes and tempo (KEEP retains the previous tempo). FLOW sets a destination row and extra jumps (INF repeats indefinitely); LOOP repeats the arrangement. STOP restores tempo and mutes. SONG FILE offers confirmed NEW and DEMO actions; unsaved work is replaced, saved slots stay intact.</li>
       <li><b>Performance:</b> EDIT adds ASSIGN VEL and ASSIGN KEY (two destinations each), plus TRIG TRACK for note forwarding and separate HP/LP tracking. ARP adds MULTI MODE, ENV and TIME: ALL, keyboard SPLIT, sequence START or TRANS, a shared envelope, timing and portamento. The MULTI MIDI channel defaults to 7; OFF preserves individual track input.</li>
       <li><b>Hold a step:</b> KNOB 1 is its chance (PROB, and A/B conditions), KNOB 2 ratchets, KNOB 3 accent, KNOB 4
         SLIDE.</li>
@@ -223,7 +224,7 @@
     <h2 id="roadmap-title">Roadmap.</h2>
     <p>0.11 adds performance controls and clearer mixer meters. All 187 stress cases have measurements across two runs; the first was manually reset by the owner.
       Some heavy combinations exceed the audio deadline. This remains a beta.
-      What remains for 1.0 is listed below. The full list is in
+      This 1.0 candidate adds extended SONG and a reloadable demo. Final device tests, including the reported slot-A save error, remain pending. The full list is in
       <a href="https://github.com/galfaroth/mnm1/blob/main/docs/ROADMAP.md">docs/ROADMAP.md</a>.</p>
   </header>
   <div class="doc-cols roadmap">
@@ -234,7 +235,7 @@
         <li>MULTI TRIG, keyboard split and a shared envelope.</li>
         <li>Velocity and keytrack assignments, separate HP/LP tracking switches.</li>
       </ul>
-      <h4>Next: 1.0</h4>
+      <h4>Candidate: 1.0</h4>
       <ul class="doc-list">
         <li>SONG rows with transpose, tempo, offset, length, mutes, loops and jumps.</li>
         <li>A demo SONG with kick, snare, melody, parameter locks and phaser transitions.</li>
