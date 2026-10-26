@@ -1,35 +1,43 @@
 {
- "version": "0.10.0",
- "commit": "626a936",
+ "version": "0.11.0",
+ "commit": "fb751d2",
  "date": "2026-10-26",
  "since": [],
  "release": {
-  "version": "0.10.0",
+  "version": "0.11.0",
   "date": "2026-10-26",
   "notes": [
    {
-    "title": "Add pattern swing amount and",
-    "text": "Add pattern swing amount and per-track 64-step swing masks; preserve the existing swing law for older projects. Keep fractional timing and nominal SONG row boundaries."
+    "title": "Add chained TRIG POS routing",
+    "text": "Add chained TRIG POS routing with cycle protection and note ownership, so an older source release cannot cut a newer independent note."
    },
    {
-    "title": "Add 3/4X and 3/2X speed",
-    "text": "Add 3/4X and 3/2X speed choices without changing previous division IDs."
+    "title": "Add MULTI ALL/SPLIT/START/TRANS modes, a",
+    "text": "Add MULTI ALL/SPLIT/START/TRANS modes, a selectable MIDI channel (default 7), panel keyboard input, quantized sequence changes, shared ADSR and portamento. Keep individual arpeggiators in ALL mode and handle overlapping MIDI/panel notes."
    },
    {
-    "title": "Add KEY, SID and ADD",
-    "text": "Add KEY, SID and ADD arpeggiation, five playback orders, octave range/jump, trigger switches and a 16-step rhythm with note offsets. Existing ARP behavior remains available as LEGACY."
+    "title": "Add two velocity and two",
+    "text": "Add two velocity and two keytrack destinations per sound, composed with parameter locks, slides and LFOs without changing stored bases. Generated ARP notes retain the last input key and velocity."
    },
    {
-    "title": "Add track/pattern transpose, FIX and",
-    "text": "Add track/pattern transpose, FIX and major/minor scale constraints. Scale rounding uses the nearest legal note, ties downward; octave-jump behavior is an explicitly documented interpretation pending physical comparison."
+    "title": "Add independent HP/LP keytracking switches.",
+    "text": "Add independent HP/LP keytracking switches. OFF uses a fixed C4 reference; controller response, envelope/portamento curves and this reference are documented interpretations, not newly measured hardware laws."
    },
    {
-    "title": "Cache cross-LFO controls once per",
-    "text": "Cache cross-LFO controls once per block with identical modulation results; device tests confirm lower overload-recovery cost. Isolate two legacy drum setup paths from target multiply scheduling hazards."
+    "title": "Preserve full performance settings in",
+    "text": "Preserve full performance settings in MNM7 projects and version-two full sounds/kits; older records load with disabled/default options. Loading a kit clears performance runtime, and cancelling sound audition restores the full sound."
    },
    {
-    "title": "Add controls as pages within",
-    "text": "Add controls as pages within the existing ARP and SEQ families. Store options in compact MNM6 projects and version-three expanded patterns, retaining readers for previous formats."
+    "title": "Make mixer level bars readable",
+    "text": "Make mixer level bars readable with an empty outlined background, solid level fill and the existing peak marker."
+   },
+   {
+    "title": "Isolate RING's rounded multiplies from",
+    "text": "Isolate RING's rounded multiplies from target load scheduling hazards while preserving its sample arithmetic."
+   },
+   {
+    "title": "All 187 hardware stress cases",
+    "text": "All 187 hardware stress cases have measurements across two runs. The owner confirmed manually resetting the first run; it is not counted as a firmware failure. Heavy combinations can still exceed the audio deadline."
    }
   ]
  }

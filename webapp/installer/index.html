@@ -504,7 +504,7 @@ const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textCont
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
 const log = (t) => { $("log").textContent += t + "\n"; };
 let image = null;
-const meta = {"version": "mnm1-0.10.0", "product": "FM-1_900", "pkg": "../../firmware/felucca-mnm1-0.10.0.fwsc"};
+const meta = {"version": "mnm1-0.11.0", "product": "FM-1_900", "pkg": "../../firmware/felucca-mnm1-0.11.0.fwsc"};
 
 let writing = false;
 window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = t("leave"); } });
