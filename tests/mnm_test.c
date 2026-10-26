@@ -926,6 +926,7 @@ static void test_plocks(void)
 static void test_presets(void)
 {
     uint32_t id, n = 0, ok = 1;
+    double levels[PRE_NFACT], organ = 0, robot = 0;
     for (id = PRE_BANK_START[PB_MNM]; id < PRE_BANK_START[PB_MNM + 1]; id++) {
         preset_t p;
         int32_t nt;
@@ -941,8 +942,12 @@ static void test_presets(void)
             render_chain(t, wl, SECS(0.5));
             r = rms_of(wl, SECS(0.01), SECS(0.08));
             pk = peak_of(wl, 0, SECS(0.5));
-            if (nt == 0)
+            if (nt == 0) {
                 printf("     %-8s %-5s rms %6.0f peak %6d\n", p.name, N_MODEL[p.model], r, pk);
+                levels[n] = r;
+                if (!strcmp(p.name, "ORGAN")) organ = r;
+                if (!strcmp(p.name, "ROBOT")) robot = r;
+            }
             if (!(r > 800.0 && pk <= 2 * VOICE_FS)) {
                 printf("      %s at %d: rms %.0f peak %d\n", p.name, nt, r, pk);
                 ok = 0;
@@ -951,6 +956,22 @@ static void test_presets(void)
         n++;
     }
     check("every MNM synth preset sounds, bounded (under 2 x a voice's full scale), at C4 and C2", ok && n >= 40u);
+    for (id = 1; id < n; id++) {
+        uint32_t j = id;
+        double v = levels[id];
+        while (j && levels[j - 1] > v) {
+            levels[j] = levels[j - 1];
+            j--;
+        }
+        levels[j] = v;
+    }
+    if (n) {
+        double median = (levels[(n - 1) / 2] + levels[n / 2]) / 2;
+        double ratio = pow(10.0, 6.0 / 20.0);
+        check("ORGAN and ROBOT within 6 dB of the synth bank median",
+              organ >= median / ratio && organ <= median * ratio &&
+              robot >= median / ratio && robot <= median * ratio);
+    }
 }
 
 int main(int argc, char **argv)

@@ -842,6 +842,14 @@ static void ui_input(void)
     if (safe_start)                                     /* safe start: no pages, no edits */
         return;
     acc_oct_poll();                                     /* OCT+ let go on the steps: the next bank (item 1) */
+    if (ui.lk_clear && !((fm1_in.buttons >> panel.btn[B_OCTDN]) & 1u)) {
+        if (ui.lk_clear == 1u && lock_mode() && song.sel == ui.lk_track && held_step() == ui.lk_step) {
+            lock_drop(ui.lk_track, ui.lk_step, 0xFFu);
+            ui_message("LOCKS CLEARED");
+            ui.force = 1;
+        }
+        ui.lk_clear = 0;
+    }
     pre_frame(now);                                     /* PRESETS: EDIT's hold, the popup's time (ui_preset.c) */
 #if FELUCCA_BLE
     bt_autostart();                                     /* AUTOSTART: BLUETOOTH ON once, 5 s after power-on (the
@@ -1006,11 +1014,10 @@ static void ui_input(void)
                 ml_oct(b == B_OCTUP);
             } else if (keys_mode()) {
                 keys_octave(b == B_OCTUP ? 1 : -1);
-            } else if (b == B_OCTDN && lock_mode() && held_step() < NSTEP) {   /* LOCK: OCT- clears the held step's
-                                                                                 * locks */
-                lock_drop(song.sel, held_step(), 0xFFu);
-                ui_message("LOCKS CLEARED");
-                ui.force = 1;
+            } else if (b == B_OCTDN && lock_mode() && held_step() < NSTEP) {
+                ui.lk_clear = 1;
+                ui.lk_track = (uint8_t)song.sel;
+                ui.lk_step = (uint8_t)held_step();
             } else if (step_keys()) {                   /* OCT+: held + a step key its accent, let go alone the
                                                          * next bank (acc_oct_poll); OCT-: the bank before */
                 if (b == B_OCTUP)
@@ -1118,6 +1125,15 @@ static void ui_input(void)
             uint32_t id = page_id(pg, k), i, si = held_step();
             const param_desc_t *d;
             int16_t *lv;
+            if ((fm1_in.buttons >> panel.btn[B_OCTDN]) & 1u) {
+                ui.lk_clear = 2;
+                if (id != 0xFFu && motion_param(id)) {
+                    lock_drop(song.sel, si, id);
+                    ui_message("LOCK CLEARED");
+                    ui.force = 1;
+                }
+                continue;
+            }
             if (id != 0xFFu && (d = page_desc(pg, k, &lv)) != 0 && d->label && d->label[0] != '-' && motion_param(id)) {
                 int li = lock_find(song.sel, si, id);
                 int32_t v0 = li >= 0 ? mo.s.ev[li].value : ((mo.base_ok >> song.sel) & 1u) ? mo.base[song.sel][id] : *lv;

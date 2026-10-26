@@ -102,6 +102,7 @@ static struct {
     uint8_t keys;                /* KEYS (spec §5): an SCL tap; off at power-on, never stored */
     uint8_t lk;                  /* MNM-1: the 8-knob pages' LOCK mode (entered from STEP with a step held): the keys
                                   * the steps, a step held + a knob its PARAMETER LOCK (motion.c lock_turn) */
+    uint8_t lk_clear, lk_track, lk_step; /* OCT-: defer clearing all locks until released without a knob turn */
     uint8_t srec, sr_cur, sr_key;   /* step record (spec §6): on; its cursor; the key whose note is on it + 1 */
     struct {                     /* MIDI LEARN (ui_learn.c; GLO + G4): never stored */
         uint8_t on;              /* LEARN is on */

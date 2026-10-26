@@ -532,11 +532,24 @@ static void test_lock_mode(void)
     grid_wait(STEP_HOLD_MS + 50u);
     ui.force = 1;
     snap_page("mnm/09_lock_held");
+    turn(EN_K2, 1);
+    ui_frame();
+    check("LOCK: two knobs locked on the held step", lock_count_step(song.sel, 3) == 2u);
+    press(B_OCTDN);
+    ui_frame();
+    check("LOCK: OCT- press preserves locks until the gesture is known", lock_count_step(song.sel, 3) == 2u);
+    turn(EN_K1, 1);
+    ui_frame();
+    check("LOCK: OCT- + KNOB 1 clears BASE only", lock_find(song.sel, 3, P_FCUT) < 0 &&
+          lock_find(song.sel, 3, P_FWDTH) >= 0);
+    release_all();
+    ui_frame();
+    check("LOCK: release after a knob turn keeps the other lock", lock_count_step(song.sel, 3) == 1u);
     press(B_OCTDN);
     ui_frame();
     release_all();
     ui_frame();
-    check("LOCK, the step held: OCT- clears its locks", lock_find(song.sel, 3, P_FCUT) < 0);
+    check("LOCK, the step held: OCT- alone clears its locks", lock_count_step(song.sel, 3) == 0u);
     grid_up(WHITE[3]);
     tap(B_SEQ);
     check("SEQ: LOCK mode off", !lock_mode());

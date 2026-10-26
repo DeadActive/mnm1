@@ -5,6 +5,12 @@ own history is in its repository.
 
 ## Unreleased
 
+## 0.6.1 - 2026-10-26
+
+- ORGAN and ROBOT: adjusted their sound knobs to bring both within 6 dB of the synth bank median. Preset ids and saved projects stay compatible.
+- LOCK: hold a step and OCT-, then turn a knob to clear only its lock. Tap OCT- while holding a step to clear all its locks on release.
+- Manual: the page table now includes the preset list and its controls.
+
 ## 0.6.0 - 2026-10-25
 
 - PRESETS: a new bank, MNM, first in the list: 55 presets for MNM-1's machines. SWSAW (SUPERSAW HOOVER SAWBASS

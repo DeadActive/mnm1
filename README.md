@@ -14,7 +14,7 @@ MNM-1's own.
 - **Play it in your browser:** <https://galfaroth.github.io/mnm1/>. The page runs the real firmware, compiled to
   WebAssembly, on an FM-1 you can play with the mouse, a touch screen or the computer keyboard.
 - **Install it on your FM-1:** <https://galfaroth.github.io/mnm1/webapp/installer/>, in Chrome or Edge, over the
-  FM-1's USB cable. Or from a terminal: `python3 tools/fm1_install.py mnm1-0.6.0.fwsc --port FM-1 --yes`
+  FM-1's USB cable. Or from a terminal: `python3 tools/fm1_install.py mnm1-0.6.1.fwsc --port FM-1 --yes`
   (needs `mido` and `python-rtmidi`).
 - **What comes next:** [docs/ROADMAP.md](docs/ROADMAP.md).
 - **What changed:** [CHANGELOG.md](CHANGELOG.md).
@@ -68,7 +68,7 @@ sets the tempo on TRACKS. **KNOB 1-4** edit the lit row.
 - On **STEP**, tap a white key to turn a step on or off; OCT- / OCT+ change the bank of 16.
 - Hold a step: KNOB 1 its chance (PROB), KNOB 2 ratchets, KNOB 3 accent, KNOB 4 SLIDE.
 - **LOCK mode:** hold a step and press EDIT, ENV, FX or LFO. The page opens with the keys still the steps; hold any
-  step and turn a knob to lock that value there (inverted on screen, `LOCK S5`). OCT- clears the held step's locks.
+  step and turn a knob to lock that value there (inverted on screen, `LOCK S5`). Hold OCT- and turn a knob to clear only its lock; tap OCT- to clear the held step's locks on release.
   SEQ leaves LOCK mode.
 - Press REC while playing and turn knobs to record locks live.
 
@@ -86,7 +86,7 @@ The web simulator and site ([docs/SIMULATOR.md](docs/SIMULATOR.md)) need Python 
 emscripten (a native `emcc`, e.g. `brew install emscripten`, or Docker):
 
 ```sh
-tools/build_sim.sh --preview --package dist/mnm1-0.6.0.fwsc
+tools/build_sim.sh --preview --package dist/mnm1-0.6.1.fwsc
 cd build/sim/preview && python3 -m http.server 8001
 ```
 

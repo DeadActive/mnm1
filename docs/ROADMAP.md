@@ -30,7 +30,7 @@ variants:
 
 - **AMP, FILTER and LFO trig tracks** per track, so pitch and envelopes trigger separately. [planned]
 - **Trigless trigs** (a pitch or locks with no envelope), **note-off trigs**, **pitchless trigs**. [planned]
-- **Clear one lock** (the FM-1's knobs don't click: a key combination instead). [planned]
+- **Clear one lock:** in LOCK mode hold a step and OCT−, then turn its knob. [implemented: 0.6.1]
 - **Swing as a step mask:** one amount for the pattern and a per-track mask of the steps it delays. [planned]
 - **Tempo multipliers 3/4X and 3/2X.** [planned]
 - **A fuller arpeggiator:** KEY, SID and ADD modes, PLAY (TRUE UP DOWN CYCLE RND), RNGE, OJMP, AMP/FLT/LFO retrigger
