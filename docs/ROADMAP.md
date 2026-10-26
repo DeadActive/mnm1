@@ -6,7 +6,29 @@ the order is the current plan.
 Legend: **[next]** being worked on next, **[planned]** wanted and feasible, **[maybe]** possible but costly on the
 FM-1, **[no]** not possible on this hardware.
 
-## 1. Deeper machines [in progress]
+## Current release: 0.10.0
+
+Implemented through 0.10: the available MONO2K engines, presets and effects; expanded storage (8 patterns,
+8 kits and 128 user sounds after explicit migration); separate AMP/FILTER/LFO trig lanes and special trig
+kinds; swing masks, fractional tempo multipliers, manual arpeggiator modes and transpose/scale controls.
+The firmware and matching browser simulator are published together. Hardware stress testing is still in
+progress: some heavy combinations exceed the audio deadline. This remains a beta release.
+
+## Next: 0.11 — performance
+
+- TRIG POS, including forwarding between tracks.
+- MULTI TRIG: all tracks, split keyboard, sequence restart/transpose, timing and shared envelope.
+- Two velocity and two keytrack assignments per track; independent HP/LP keytracking switches.
+
+## Then: 1.0 — SONG
+
+- Song rows with transpose, offset, length, mutes and tempo.
+- Nested loops and jumps, followed by integration and hardware validation.
+
+The optional items below are outside these two planned releases. Missing source features, including VOX
+consonants, still require implementation and validation; they are not claimed as imported.
+
+## 1. Deeper machines
 
 0.7.0 ports 19 calibrated machines and the complete audio chain, 120 full factory sounds, source LFO/ARP laws,
 96 wave cycles (32 generated plus 64 owner-authored), restored resonator FX and additional bus effects.
@@ -33,21 +55,21 @@ variants:
 
 ## 2. Sequencer
 
-- **AMP, FILTER and LFO trig tracks** per track, so pitch and envelopes trigger separately. [planned]
-- **Trigless trigs** (a pitch or locks with no envelope), **note-off trigs**, **pitchless trigs**. [planned]
+- **AMP, FILTER and LFO trig tracks** per track, so pitch and envelopes trigger separately. [implemented: 0.9.0]
+- **Trigless trigs** (a pitch or locks with no envelope), **note-off trigs**, **pitchless trigs**. [implemented: 0.9.0]
 - **Clear one lock:** in LOCK mode hold a step and OCT−, then turn its knob. [implemented: 0.6.1]
-- **Swing as a step mask:** one amount for the pattern and a per-track mask of the steps it delays. [planned]
-- **Tempo multipliers 3/4X and 3/2X.** [planned]
+- **Swing as a step mask:** one amount for the pattern and a per-track mask of the steps it delays. [implemented: 0.10.0]
+- **Tempo multipliers 3/4X and 3/2X.** [implemented: 0.10.0]
 - **A fuller arpeggiator:** KEY, SID and ADD modes, PLAY (TRUE UP DOWN CYCLE RND), RNGE, OJMP, AMP/FLT/LFO retrigger
-  switches and a 16-step rhythm and note-offset track. [planned]
-- **Transpose:** TRACK, PAT, SCALE (FIX MAJ MIN) and KEY. [planned]
+  switches and a 16-step rhythm and note-offset track. [implemented: 0.10.0]
+- **Transpose:** TRACK, PAT, SCALE (FIX MAJ MIN) and KEY. [implemented: 0.10.0]
 - **Copy, paste and clear** of steps, tracks and patterns. [planned]
 
 ## 3. Memory and structure
 
-- **More patterns and kits.** MNM-1 has 4 project slots (each a set of sequences and sounds), limited by the ~15 KB
-  of flash it keeps for projects. A pattern/kit split stored in the FM-1's free flash is planned. [planned]
-- **A fuller song mode:** rows with transpose, offset, length, mutes, BPM, nested loops and jumps. [maybe]
+- **More patterns and kits.** 8 patterns, 8 kits and 128 full user sounds after explicit migration.
+  Migration reuses sample slots 2 and 3; slot 1 stays available. [implemented: 0.8.0]
+- **A fuller song mode:** rows with transpose, offset, length, mutes, BPM, nested loops and jumps. [planned: 1.0]
 
 ## 4. Performance and playing
 

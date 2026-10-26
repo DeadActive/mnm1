@@ -162,9 +162,9 @@ test('manual: tracks and machines, the 8-knob pages, the sequencer; every machin
   assert.match(sec, /LOCK/, 'parameter locks explained');
 });
 
-test('roadmap: next, planned, maybe and not possible; it links the full list', () => {
+test('roadmap: 0.11, 1.0, maybe and not possible; it links the full list', () => {
   const sec = LANDING.slice(LANDING.indexOf('id="roadmap"'), LANDING.indexOf('id="install"'));
-  for (const h of ['Next', 'Planned', 'Maybe', 'Not on this hardware']) assert.match(sec, new RegExp(`<h4>${h}`), h);
+  for (const h of ['Next: 0.11', 'Then: 1.0', 'Maybe', 'Not on this hardware']) assert.match(sec, new RegExp(`<h4>${h}`), h);
   assert.match(sec, /docs\/ROADMAP\.md/);
   assert.ok(readFileSync('docs/ROADMAP.md', 'utf8').length > 1000);
 });
