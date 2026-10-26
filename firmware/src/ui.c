@@ -122,7 +122,7 @@ static struct {
         uint8_t pv, pv_trk;      /* the list: track pv_trk auditions the cursor's preset (its own sound in sv_*) */
         uint8_t sv_model, sv_ed; /* .. that sound: MODEL, the 8 SOUND knobs (motion's base while it plays), the preset */
         uint16_t sv_pre;         /*    and its edited mark, put back unless LOAD keeps the audition */
-        int16_t sv_k[8];
+        int16_t sv_k[P_COUNT];
     } pr;
 } ui;
 
@@ -237,6 +237,9 @@ static uint32_t srec_time(const step_t *s) { return s->tie ? 1u : s->on ? 0u : 2
 static int page_hidden(uint32_t i)
 {
     uint8_t ids[16];
+    if (i < NPAGES && (PAGES[i].id[0] == P_BITS || PAGES[i].id[0] == P_MODT) &&
+        DMODELS[(uint32_t)TSEL->p[P_MODEL] % NMODELS].mm < 2u)
+        return 1;
     if (i >= NPAGES || PAGES[i].fam != FAM_SND || PAGES[i].id[0] < SND_SLOT)
         return 0;
     return PAGES[i].id[0] - SND_SLOT >= snd_list(TSEL, ids);
@@ -264,7 +267,7 @@ static void open_family(uint32_t fam)
                                                         * (page_entered keeps it on an 8-knob page) */
     if (!ui.home && cur_page()->fam == fam) {          /* same button again: next page */
         uint32_t i = ui.page + 1u;
-        while (i < NPAGES && PAGES[i].fam == fam && page_hidden(i))
+        while (i < NPAGES && (PAGES[i].fam != fam || page_hidden(i)))
             i++;
         if (i >= NPAGES || PAGES[i].fam != fam)
             i = page_first(fam);
@@ -595,10 +598,12 @@ static void drum_boot_init(void)
 /* the MODEL knob's list: MNM-1's synth machines first (SWAVE, SID, FM+, DPRO, GND, VO), then Hortator's banks, MD ->
  * MODERN -> CLASSIC (fix 8, owner 2026-10-21); within MD and CLASSIC the enum's order, MODERN as its bank (ACID, SMPL
  * last). Only the order shown: the models keep their numbers (projects store them, dmodels.c) */
-typedef char model_list_full[NMODELS == 59 ? 1 : -1];   /* (a new model: into MODEL_LIST too) */
+typedef char model_list_full[NMODELS == 82 ? 1 : -1];   /* (a new model: into MODEL_LIST too) */
 static const uint8_t MODEL_LIST[NMODELS] = {
     DM_MMSAW, DM_MMPLS, DM_MMSID, DM_MMFM, DM_MMDP, DM_MMGND, DM_MMVO,
     DM_FXTHRU, DM_FXREV, DM_FXCHO, DM_FXDYN, DM_FXRING, DM_FXPHS, DM_FXFLG,
+    DM_FXSTR, DM_FXPIPE, DM_FXCHORD, DM_FXMODAL,
+    DM_M2_GSIN, DM_M2_GPRC, DM_M2_SID, DM_M2_FMS, DM_M2_FMD, DM_M2_SAW, DM_M2_ENS, DM_M2_WAV, DM_M2_VOX, DM_M2_FMP, DM_M2_PUL, DM_M2_FXC, DM_M2_FXR, DM_M2_FXD, DM_M2_GNOI, DM_M2_DKIK, DM_M2_DSNR, DM_M2_DHAT, DM_M2_DCYM,
     DM_KTRX, DM_SDTRX, DM_XTTRX, DM_XCTRX, DM_CPTRX, DM_RSTRX, DM_CBTRX, DM_CHTRX, DM_OHTRX, DM_CYTRX, DM_MATRX, DM_CLTRX,
     DM_B2TRX, DM_BDEFM, DM_SDEFM, DM_XTEFM, DM_CPEFM, DM_RSEFM, DM_CBEFM, DM_HHEFM, DM_CYEFM,
     DM_KBOOM, DM_KPUNC, DM_SSNAP, DM_SCRAK, DM_HMETL, DM_HNOIS, DM_MEMB, DM_FM, DM_ACID, DM_SMPL,
@@ -622,15 +627,16 @@ static uint32_t model_list_next(uint32_t m, int32_t dir)   /* the model after / 
 static void model_step(int32_t dir)
 {
     uint32_t m = model_list_next((uint32_t)TSEL->p[P_MODEL] % NMODELS, dir);
-    int capped = m == DM_ACID && acid_tracks(TSEL) >= ACID_MAXTRK;   /* ACID on 2 tracks at most: the list skips it */
-    if (capped)
+    const char *refused = model_refused(TSEL, m);
+    uint32_t tries = 0;
+    while (model_refused(TSEL, m) && ++tries < NMODELS)
         m = model_list_next(m, dir);
     fm1_irq_off();
     drum_set_model(TSEL, m);
     motion_rebase(song.sel);                        /* motion.c: the new sound is the base */
     fm1_irq_on();
-    if (capped)
-        ui_message("ACID: 2 TRACKS MAX");
+    if (refused)
+        ui_message(refused);
     else
         ui_say("MODEL ", N_MODEL[m]);
     ui.force = 1;

@@ -1,0 +1,201 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Version-one pattern, kit and full-sound payloads. Include after params,
+ * presets, motion and song. Storage supplies atomic writes and checksums.
+ * These converters change parameters/metadata only: callers stop voices and
+ * reset engine state under their own IRQ guard before applying a sound/kit.
+ * Byte parameters retain two's-complement signed values; the selected model's
+ * descriptor determines signedness. Field order keeps uint16 fields aligned. */
+#ifndef MNM_RECORDS_H
+#define MNM_RECORDS_H
+#define MMR_VERSION 1u
+#define MMR_PATTERNS 8u
+#define MMR_KITS 8u
+#define MMR_SOUNDS 128u
+#define MMR_SOUNDS_PER_OBJECT 32u
+#define MMR_KITS_PER_OBJECT 2u
+static const uint8_t MMR_PATTERN_PARAMS[] = {P_MUTE,P_SLEN,P_SDIV,P_SSWING,P_SRC};
+static const uint8_t MMR_KIT_PARAMS[] = {P_CHOKE,P_NOTE,P_DUCK,P_PRIO,P_OUT,P_IN,P_FXG};
+#define MMR_PATTERN_N (sizeof MMR_PATTERN_PARAMS)
+#define MMR_KIT_N (sizeof MMR_KIT_PARAMS)
+typedef struct {
+    uint8_t used;
+    char name[9];
+    uint16_t preset_ref;
+    uint8_t edited;
+    uint8_t p[P_COUNT];
+} mmr_sound_t;
+typedef struct {
+    uint8_t used;
+    char name[NAME_LEN+1];
+    int16_t config[NTRK][MMR_KIT_N];
+    mmr_sound_t sound[NTRK];
+} mmr_kit_t;
+typedef struct {
+    uint16_t version;
+    uint8_t used,kit,selected,reserved;
+    char name[NAME_LEN];
+    int16_t g[G_COUNT];
+    int16_t timing[NTRK][MMR_PATTERN_N];
+    step_t step[NTRK][NSTEP];
+    motion_store_t motion;
+    chain_config_t song;
+} mmr_pattern_t;
+typedef struct {uint16_t version,reserved;mmr_kit_t kit[MMR_KITS_PER_OBJECT];} mmr_kits_t;
+typedef struct {uint16_t version,reserved;mmr_sound_t sound[MMR_SOUNDS_PER_OBJECT];} mmr_sounds_t;
+_Static_assert(sizeof(mmr_pattern_t)<=3840,"pattern payload too large");
+_Static_assert(sizeof(mmr_kits_t)<=3840,"kit payload too large");
+_Static_assert(sizeof(mmr_sounds_t)<=3840,"sound payload too large");
+_Static_assert(P_COUNT<128 && NMODELS<=128,"byte sound format needs a new version");
+static int mmr_sound_param(unsigned id)
+{
+    for(unsigned i=0;i<MMR_PATTERN_N;i++)if(id==MMR_PATTERN_PARAMS[i])return 0;
+    for(unsigned i=0;i<MMR_KIT_N;i++)if(id==MMR_KIT_PARAMS[i])return 0;
+    return id<P_COUNT;
+}
+static const param_desc_t *mmr_desc(unsigned model,unsigned id)
+{
+    if(id>=P_E0&&id<=P_E7)return &DMODELS[model].edit[id-P_E0];
+    if(mmen_is_model(model)){const param_desc_t *d=mm_control_desc(id);if(d)return d;}
+    return &TP[id];
+}
+static int mmr_name_valid(const char *name,unsigned n)
+{
+    for(unsigned i=0;i<n;i++){
+        if(!name[i])return 1;
+        if(!name_char_ok(name[i]))return 0;
+    }
+    return 1; /* fixed-width pattern names may occupy all bytes */
+}
+static void mmr_name_copy(char *dst,unsigned n,const char *src)
+{
+    memset(dst,0,n);
+    if(src)for(unsigned i=0;i+1<n&&src[i];i++)dst[i]=name_char_ok(src[i])?src[i]:' ';
+}
+static int mmr_decode(uint8_t v,const param_desc_t *d)
+{
+    return d->min<0?(v>=128?(int)v-256:v):v;
+}
+static int mmr_sound_valid(const mmr_sound_t *s)
+{
+    unsigned model=s->p[P_MODEL];
+    if(s->used!=1||model>=NMODELS||s->edited>1||s->name[8]||!mmr_name_valid(s->name,8))return 0;
+    for(unsigned id=0;id<P_COUNT;id++){
+        if(!mmr_sound_param(id)){if(s->p[id])return 0;continue;}
+        const param_desc_t *d=mmr_desc(model,id);
+        int v=mmr_decode(s->p[id],d);
+        if(v<d->min||v>d->max)return 0;
+    }
+    return 1;
+}
+static int mmr_sound_capture(mmr_sound_t *s,const track_t *t,const char *name)
+{
+    unsigned model=(unsigned)t->p[P_MODEL];
+    if(model>=NMODELS)return 0;
+    for(unsigned id=0;id<P_COUNT;id++)if(mmr_sound_param(id)){
+        const param_desc_t *d=mmr_desc(model,id);int v=t->p[id];
+        if(v<d->min||v>d->max||v< -128||v>127)return 0;
+    }
+    memset(s,0,sizeof *s);s->used=1;
+    mmr_name_copy(s->name,sizeof s->name,name);
+    s->preset_ref=(uint16_t)preset_rec_enc(t->pre);s->edited=!!t->pre_ed;
+    for(unsigned id=0;id<P_COUNT;id++)if(mmr_sound_param(id))s->p[id]=(uint8_t)t->p[id];
+    return 1;
+}
+static int mmr_sound_apply(track_t *t,const mmr_sound_t *s)
+{
+    if(!mmr_sound_valid(s))return 0;
+    unsigned model=s->p[P_MODEL],pre=preset_rec_dec(s->preset_ref);
+    for(unsigned id=0;id<P_COUNT;id++)if(mmr_sound_param(id))t->p[id]=(int16_t)mmr_decode(s->p[id],mmr_desc(model,id));
+    if(pre<PRE_NFACT&&PRE_FACTORY[pre].model!=model)pre=PRE_NONE;
+    t->pre=(uint16_t)pre;t->pre_ed=s->edited;
+    return 1;
+}
+static int mmr_kit_valid(const mmr_kit_t *kit)
+{
+    if(kit->used!=1||kit->name[NAME_LEN]||!mmr_name_valid(kit->name,NAME_LEN))return 0;
+    for(unsigned k=0;k<NTRK;k++){
+        if(!mmr_sound_valid(&kit->sound[k]))return 0;
+        for(unsigned j=0;j<MMR_KIT_N;j++){
+            const param_desc_t *d=&TP[MMR_KIT_PARAMS[j]];int v=kit->config[k][j];
+            if(v<d->min||v>d->max)return 0;
+        }
+    }
+    return 1;
+}
+static int mmr_kit_capture(mmr_kit_t *kit,const track_t *tracks,const char *name)
+{
+    memset(kit,0,sizeof *kit);mmr_name_copy(kit->name,sizeof kit->name,name);
+    for(unsigned k=0;k<NTRK;k++){
+        char label[9];preset_name_of(tracks[k].pre,label);
+        if(!mmr_sound_capture(&kit->sound[k],&tracks[k],label))return 0;
+        for(unsigned j=0;j<MMR_KIT_N;j++)kit->config[k][j]=tracks[k].p[MMR_KIT_PARAMS[j]];
+    }
+    kit->used=1;if(mmr_kit_valid(kit))return 1;kit->used=0;return 0;
+}
+static int mmr_kit_apply(track_t *tracks,const mmr_kit_t *kit)
+{
+    if(!mmr_kit_valid(kit))return 0;
+    for(unsigned k=0;k<NTRK;k++){
+        mmr_sound_apply(&tracks[k],&kit->sound[k]);
+        for(unsigned j=0;j<MMR_KIT_N;j++)tracks[k].p[MMR_KIT_PARAMS[j]]=kit->config[k][j];
+    }
+    return 1;
+}
+static int mmr_pattern_valid(const mmr_pattern_t *p)
+{
+    if(p->version!=MMR_VERSION||p->used!=1||p->kit>=MMR_KITS||p->selected>=NTRK||p->reserved||
+       !mmr_name_valid(p->name,sizeof p->name)||!motion_valid(&p->motion)||!chain_valid(&p->song))return 0;
+    for(unsigned i=0;i<G_COUNT;i++)if(p->g[i]<GP[i].min||p->g[i]>GP[i].max)return 0;
+    for(unsigned k=0;k<NTRK;k++){
+        for(unsigned j=0;j<MMR_PATTERN_N;j++){
+            const param_desc_t *d=&TP[MMR_PATTERN_PARAMS[j]];int v=p->timing[k][j];
+            if(v<d->min||v>d->max)return 0;
+        }
+        for(unsigned i=0;i<NSTEP;i++){
+            const step_t *s=&p->step[k][i];
+            if(s->cond>COND_MAX||s->nt<NT_MIN||s->nt>NT_MAX)return 0;
+        }
+    }
+    return 1;
+}
+static int mmr_pattern_capture(mmr_pattern_t *p,const track_t *tracks,const int16_t *globals,
+                              const motion_store_t *motion,const chain_config_t *song_config,
+                              unsigned selected,unsigned kit,const char *name)
+{
+    memset(p,0,sizeof *p);p->version=MMR_VERSION;p->used=1;
+    if(selected>=NTRK||kit>=MMR_KITS){p->used=0;return 0;}
+    p->selected=(uint8_t)selected;p->kit=(uint8_t)kit;
+    /* Pattern names have the existing twelve-byte project representation. */
+    if(name)for(unsigned i=0;i<NAME_LEN&&name[i];i++)p->name[i]=name_char_ok(name[i])?name[i]:' ';
+    memcpy(p->g,globals,sizeof p->g);p->motion=*motion;p->song=*song_config;
+    for(unsigned k=0;k<NTRK;k++){
+        for(unsigned j=0;j<MMR_PATTERN_N;j++)p->timing[k][j]=tracks[k].p[MMR_PATTERN_PARAMS[j]];
+        memcpy(p->step[k],tracks[k].step,sizeof p->step[k]);
+        for(unsigned i=0;i<NSTEP;i++)p->step[k][i].rsv=0;
+    }
+    if(mmr_pattern_valid(p))return 1;p->used=0;return 0;
+}
+static int mmr_pattern_apply(track_t *tracks,int16_t *globals,motion_store_t *motion,
+                            chain_config_t *song_config,const mmr_pattern_t *p)
+{
+    if(!mmr_pattern_valid(p))return 0;
+    memcpy(globals,p->g,sizeof p->g);*motion=p->motion;*song_config=p->song;
+    for(unsigned k=0;k<NTRK;k++){
+        for(unsigned j=0;j<MMR_PATTERN_N;j++)tracks[k].p[MMR_PATTERN_PARAMS[j]]=p->timing[k][j];
+        memcpy(tracks[k].step,p->step[k],sizeof p->step[k]);
+    }
+    return 1; /* selected track and kit link are returned in the validated record */
+}
+static int mmr_sounds_valid(const mmr_sounds_t *b)
+{
+    if(b->version!=MMR_VERSION||b->reserved)return 0;
+    for(unsigned i=0;i<MMR_SOUNDS_PER_OBJECT;i++)if(b->sound[i].used&&!mmr_sound_valid(&b->sound[i]))return 0;
+    return 1;
+}
+static int mmr_kits_valid(const mmr_kits_t *b)
+{
+    if(b->version!=MMR_VERSION||b->reserved)return 0;
+    for(unsigned i=0;i<MMR_KITS_PER_OBJECT;i++)if(b->kit[i].used&&!mmr_kit_valid(&b->kit[i]))return 0;
+    return 1;
+}
+#endif

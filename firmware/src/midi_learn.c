@@ -98,7 +98,7 @@ static __attribute__((noinline)) void ml_set(track_t *t, uint32_t id, uint32_t v
     if (lf)
         lfo_restore_track(t);
     t->p[id] = (int16_t)nv;
-    if (PRE_SOUND(id))
+    if (PRE_SOUND(id) || (t->p[P_MODEL] >= MM_MODEL_FIRST && mm_control_desc(id)))
         preset_touch(t);                            /* presets.c: the voice edited */
     if (lf)
         lfo_track(t, 0);

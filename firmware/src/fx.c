@@ -2,11 +2,17 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Effects: per-track DIST insert, then sends into three
  * shared buses (chorus, tempo delay, reverb). Mono buses, stereo dry mix. */
+#define MM2_MUL_OUT 1
+#include "mm_busfx.h"
+#include "mm_delay.h"
 #define DLY_LEN 16384u           /* 0.37 s (MNM-1: the shared delay is PERFORM's THROW only; its RAM the tracks' own) */
 #define CHO_LEN 2048u
 static int16_t dly_buf[DLY_LEN] __attribute__((section(".pool")));
 #define TD_LEN 4096u             /* a track's delay: cells a channel (MNM-1, track_delay) */
 static int16_t td_buf[NTRK][2][TD_LEN] __attribute__((section(".pool")));
+static int16_t tape_buf[MMB_TAPE_CELLS];   /* RAM has room; preserve the pool's 8 KiB safety margin. */
+static mmd_state mmtd[NTRK];
+static uint8_t mmtd_profile[NTRK];
 static int16_t cho_buf[CHO_LEN] __attribute__((section(".pool")));
 static const uint16_t REV_COMB[4] = {1116, 1188, 1277, 1356};
 static const uint16_t REV_AP[2] = {556, 441};
@@ -17,6 +23,13 @@ static union {                          /* ROOM's allpasses; SPRING's allpass ch
                                          * missed it, and ROOM played it back after a switch as a click) */
 } rev_u __attribute__((section(".pool")));
 #define rev_ap (rev_u.ap)
+static struct {
+    mmb_tape_t tape;
+    mmb_crunch_t crunch;
+    mmb_hiss_t hiss;
+    mmb_reverb_t reverb;
+    uint8_t bus_ready;
+} bfx;
 static struct {
     uint32_t dly_w, cho_w, cho_ph;
     int32_t dly_lp;
@@ -286,6 +299,7 @@ static void rev_clear(void)
     fx.sp_lp = fx.sp_hp = fx.sp_he = 0;
 }
 
+static int32_t stereo_wet[CTL];
 static int32_t part_buf[CTL];                            /* a part's block (mix_part); the fade of a model change */
 
 /* process the three buses for one block; sends in, wet stereo-equal out */
@@ -319,22 +333,35 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
         y += mulq15(x << 1, dmix);
         wet[i] = y;
     }
-    rt = song.g[G_RTYPE] == 1;
+    for (i = 0; i < n; i++) stereo_wet[i] = 0;
+    rt = clamp(song.g[G_RTYPE], 0, 2);
     if (rt != fx.rtype) {                               /* the model changed: the old one's block fades out, */
         int32_t *t = part_buf, g = 65536, d = 65536 / (int32_t)n;   /* its buffers are cleared, the new */
         for (i = 0; i < n; i++)                                     /* one starts from silence */
             t[i] = 0;
-        if (fx.rtype)
+        if (fx.rtype == 1)
             rev_spring(rev_in, t, n);
-        else
+        else if (!fx.rtype)
             rev_room(rev_in, t, n);
         for (i = 0; i < n; i++, g -= d)
             wet[i] += mulq16(t[i], (uint32_t)g);
         rev_clear();
+        mmb_reverb_init(&bfx.reverb, rev_comb);
         fx.rtype = (uint8_t)rt;
         return;
     }
-    if (rt)
+    if (rt == 2) {
+        for (i = 0; i + 16u <= n; i += 16u) {
+            int32_t l[16] = {0}, r[16] = {0}, send[16];
+            uint32_t j;
+            for (j = 0; j < 16; j++) send[j] = clamp(rev_in[i + j], -32767, 32767);
+            mmb_reverb_block(&bfx.reverb, song.g[G_RSIZE], song.g[G_RDAMP], send, l, r);
+            for (j = 0; j < 16; j++) {
+                wet[i + j] += (l[j] + r[j]) / 2;
+                stereo_wet[i + j] = (l[j] - r[j]) / 2;
+            }
+        }
+    } else if (rt == 1)
         rev_spring(rev_in, wet, n);
     else
         rev_room(rev_in, wet, n);
@@ -479,27 +506,116 @@ static void fx_prepare(const track_t *t, uint32_t n)
         for (i = 0; i < n; i++)
             fx_in_buf[i] = (bus_l[in - 1u][i] + bus_r[in - 1u][i]) >> 1;
     }
+    if (trk_model(t)->mm >= 2u) {
+        if (in == IN_NEIB && k && trk_model(&trk[k-1])->mm >= 2u)
+            for (i = 0; i < n; i++) fx_in_buf[i] = t->model == DM_M2_FXR ? mmen_post[k-1][i] : mmen_pre[k-1][i];
+        for (i = 0; i < n; i++) mmen_carrier[i] = k >= 2u && ((trk_post_on >> (k-2u)) & 1u) ?
+            (trk_model(&trk[k-2])->mm >= 2u ? mmen_pre[k-2][i] : mm2_sat16(trk_post[k-2][i])) : 0;
+    }
     for (i = 0; i < n; i++)
         fx_in_on |= (uint32_t)fx_in_buf[i];
+}
+
+/* Calibrated delay shares the legacy track's 16 KiB allocation. */
+static void calibrated_delay(track_t *t, uint32_t k, int32_t *bl, int32_t *br,
+                             const int32_t *left, const int32_t *right, uint32_t n)
+{
+    uint32_t off, j;
+    for (off = 0; off + 16u <= n; off += 16u) {
+        int32_t l[16], r[16], wl[16], wr[16];
+        for (j = 0; j < 16; j++) {
+            l[j] = left ? clamp(left[off+j], -32767, 32767) : 0;
+            r[j] = right ? clamp(right[off+j], -32767, 32767) : 0;
+        }
+        mmd_process(&mmtd[k], (uint8_t *)td_buf[k], l, r, wl, wr,
+                    song.g[G_BPM], t->p[P_DTIM], t->p[P_DLY]+64,
+                    t->p[P_DFB], t->p[P_DBAS], t->p[P_DWID]);
+        if (bl && br) for (j = 0; j < 16; j++) {
+            bl[off+j] += wl[j]; br[off+j] += wr[j];
+        }
+    }
 }
 
 /* one track into the dry mix and the sends; a track with no voice sounding costs the LFO tick and a cleared
  * buffer only (after the DIST tail has run out). src: the COMP source (NTRK = off). The source's block (after
  * DIST / SLICER, before LEVEL and MUTE) feeds the compressor; a muted source (trk_silent: SOLO too) is heard by it
  * only (ghost key) with GHOST KEEP, by nobody with MUTE; with HIDE the source is never heard in the mix (G_CGHOST). A DUCK track is multiplied by the compressor's gain before its level, pan and sends. */
+/* Only independent calibrated renders run concurrently. Routing, compressor,
+ * delays and inserts keep their serial order and shared scratch ownership. */
+static int (*cal_parallel_begin)(void (*)(void *), void *);
+static void (*cal_parallel_end)(void);
+static int32_t cal_pcm[NTRK][CTL];
+static uint8_t cal_sounding[NTRK], cal_cached, cal_worker_mask;
+static uint32_t cal_frames;
+static void cal_render_mask(uint32_t mask)
+{
+    for (unsigned k=0;k<NTRK;k++) if (mask & (1u<<k)) {
+        memset(mmen_left[k],0,sizeof mmen_left[k]);
+        memset(mmen_right[k],0,sizeof mmen_right[k]);
+        memset(mmen_reverb_send[k],0,sizeof mmen_reverb_send[k]);
+        cal_sounding[k]=(uint8_t)track_render(&trk[k],cal_pcm[k],cal_frames);
+    }
+}
+static void cal_render_worker(void *context)
+{
+    (void)context;
+    cal_render_mask(cal_worker_mask);
+}
+static void cal_render_parallel(uint32_t n)
+{
+    unsigned mask=0, worker=0, main_cost=0, worker_cost=0;
+    cal_cached=0;
+    if (!cal_parallel_begin || !cal_parallel_end) return;
+    for (unsigned k=0;k<NTRK;k++) {
+        unsigned m=trk[k].model;
+        /* SID reads the preceding track's same-block pitch; FX reads routing.
+         * Keep both serial, including modulation that changes their inputs. */
+        if (!mmen_is_model(m) || m==MM_MODEL_FIRST+MM2_SID ||
+            trk[k].p[P_MODEL]!=(int16_t)m || DMODELS[m].fx) continue;
+        if (k+1u<NTRK && trk[k+1u].model==MM_MODEL_FIRST+MM2_SID) continue;
+        unsigned cost=m==MM_MODEL_FIRST+MM2_ENS?2:1;
+        mask|=1u<<k;
+        if (worker_cost<main_cost) {worker|=1u<<k;worker_cost+=cost;}
+        else main_cost+=cost;
+    }
+    if (!worker) return;
+    cal_frames=n;cal_worker_mask=(uint8_t)worker;
+    if (!cal_parallel_begin(cal_render_worker,0)) return;
+    cal_render_mask(mask & ~worker);
+    cal_parallel_end();
+    cal_cached=(uint8_t)mask;
+}
 static void mix_part(track_t *t, uint32_t n, uint32_t src)
 {
-    int32_t *b = part_buf;
+    int32_t *b = part_buf, side[CTL] = {0};
+    uint32_t cal = trk_model(t)->mm >= 2u;
     uint32_t i, is_src = (uint32_t)(t - trk) == src, snd, k = (uint32_t)(t - trk), out = (uint32_t)clamp(t->p[P_OUT], 0, 3);
+    if (mmtd_profile[k] != cal + 1u) {
+        memset(&td[k], 0, sizeof td[k]);
+        if (cal) mmd_init(&mmtd[k], (uint8_t *)td_buf[k]);
+        else memset(td_buf[k], 0, sizeof td_buf[k]);
+        mmtd_profile[k] = (uint8_t)(cal + 1u);
+    }
+    if (cal && !(cal_cached & (1u<<k))) {
+        memset(mmen_left[k], 0, sizeof mmen_left[k]);
+        memset(mmen_right[k], 0, sizeof mmen_right[k]);
+        memset(mmen_reverb_send[k], 0, sizeof mmen_reverb_send[k]);
+    }
     if (trk_model(t)->fx)
         fx_prepare(t, n);                               /* its input, before it renders (mm_fx.c) */
-    snd = track_render(t, b, n);
-    snd = trk_inserts(t, b, n, snd);                   /* RESON, then FILTER (filter.c), before DIST */
+    if (cal_cached & (1u<<k)) {
+        memcpy(b,cal_pcm[k],n*sizeof *b);
+        snd=cal_sounding[k];
+    } else snd = track_render(t, b, n);
+    if (!cal) snd = trk_inserts(t, b, n, snd);                   /* RESON, then FILTER (filter.c), before DIST */
+    if (cal) for (i = 0; i < n; i++) side[i] = (mmen_left[k][i] - mmen_right[k][i]) / 2;
     if (snd)
         t->tail = 16;                                   /* blocks of DIST state to run out after the last voice */
     else if ((!t->tail || !t->p[P_DIST] || !--t->tail) && !slicer_busy(t)) {
         slicer_track(t, 0, n);                          /* (the SLICER's step clock runs on) */
-        if (td[k].on && out < BUS_OFF)                  /* its delay's echoes ring on */
+        if (cal) calibrated_delay(t, k, out < BUS_OFF ? bus_l[out] : 0,
+                                  out < BUS_OFF ? bus_r[out] : 0, 0, 0, n);
+        if (!cal && td[k].on && out < BUS_OFF)                  /* its delay's echoes ring on */
             track_delay(t, k, bus_l[out], bus_r[out], n, 0);
         if ((pf.mute >> (t - trk)) & 1u)
             perf_mute_idle((uint32_t)(t - trk));        /* perform.c: a white key in the FX layer */
@@ -510,17 +626,20 @@ static void mix_part(track_t *t, uint32_t n, uint32_t src)
         return;
     }
     {
-        int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN], *bl, *br, *post = trk_post[k];
+        int32_t lvl = cal ? 4096 : LEVEL_Q12[t->p[P_LEVEL] & 127], pan = cal ? 0 : t->p[P_PAN], *bl, *br, *post = trk_post[k];
         int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
         int32_t c = t->p[P_CHOR] * 258, d = 0, r = t->p[P_REV] * 258, pk = t->peak;
         int32_t ds = (t->p[P_DLY] < 0 ? -t->p[P_DLY] : t->p[P_DLY]) * 512, dsw = t->p[P_DLY] > 0;   /* the track's
                                                          * delay's send, Q15; ping-pong: the sides swapped */
         int32_t xmax = c > ds ? c : ds;
         xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);   /* sends: loud chords at a high LEVEL */
-        track_dist(t, b, n);
-        slicer_track(t, b, n);                          /* slicer.c: before the level, pan and sends */
-        if ((pf.mute >> (t - trk)) & 1u)
-            perf_mute((uint32_t)(t - trk), b, n);       /* perform.c: a white key in the FX layer */
+        if (!cal) track_dist(t, b, n);
+        slicer_track_stereo(t, b, cal ? side : 0, n);                          /* slicer.c: before the level, pan and sends */
+        if ((pf.mute >> (t - trk)) & 1u) {
+            int32_t gain = pf.mg[k];
+            perf_mute(k, b, n);
+            if (cal) { pf.mg[k] = gain; perf_mute(k, side, n); }
+        }       /* perform.c: a white key in the FX layer */
         if (is_src) {
             int sil = trk_silent(t), hide = sil || song.g[G_CGHOST] == CG_HIDE;
             comp_block(sil && song.g[G_CGHOST] == CG_MUTE ? 0 : b, n);   /* GHOST MUTE: muted keys nothing */
@@ -532,13 +651,16 @@ static void mix_part(track_t *t, uint32_t n, uint32_t src)
                                                          * still mixes its faded samples) */
                 for (i = 0; i < n; i++) {
                     g = g < to ? (g + 150 < to ? g + 150 : to) : (g - 150 > to ? g - 150 : to);
-                    b[i] = (int32_t)(((int64_t)b[i] * (32767 - g)) >> 15);
+                    b[i] = mmc_mul(b[i], 32767 - g, 15);
+                    if (cal) side[i] = mmc_mul(side[i], 32767 - g, 15);
                 }
                 t->gfade = (uint16_t)g;
             }
         } else if (src < NTRK && t->p[P_DUCK]) {
-            for (i = 0; i < n; i++)
-                b[i] = clamp((int32_t)(((int64_t)b[i] * comp.gain[i]) >> 16), -(1 << 19), 1 << 19);
+            for (i = 0; i < n; i++) {
+                b[i] = clamp(mmc_mul(b[i], comp.gain[i], 16), -(1 << 19), 1 << 19);
+                if (cal) side[i] = mmc_mul(side[i], comp.gain[i], 16);
+            }
         }
         if (out == BUS_OFF)
             c = d = r = ds = 0;                         /* OUT OFF: on no bus, no sends (heard through an FX only) */
@@ -548,7 +670,7 @@ static void mix_part(track_t *t, uint32_t n, uint32_t src)
             for (i = 0; i < n; i++)
                 bl[i] = br[i] = 0;                      /* an insert: its output takes the bus's place */
         for (i = 0; i < n; i++) {
-            int32_t x = clamp(((b[i] >> 2) * lvl) >> 10, -524287, 524287), a = x < 0 ? -x : x;   /* pre-shift: 8 loud
+            int32_t x = cal ? b[i] : clamp(((b[i] >> 2) * lvl) >> 10, -524287, 524287), a = x < 0 ? -x : x;   /* pre-shift: 8 loud
                                                          * voices; the clamp: x * gl (Q12) fits (COMP makeup) */
             int32_t xs = clamp(x, -xmax, xmax);         /* sends: mulq15 would overflow */
             if (a > pk)
@@ -561,16 +683,23 @@ static void mix_part(track_t *t, uint32_t n, uint32_t src)
             if (r)
                 send_r[i] += mulq15(xs, r);
             if (out < BUS_OFF) {
-                bl[i] += (x * gl) >> 12;
-                br[i] += (x * gr) >> 12;
+                bl[i] += ((x * gl) >> 12) + side[i];
+                br[i] += ((x * gr) >> 12) - side[i];
+                if (cal) send_r[i] += mmen_reverb_send[k][i];
             }
-            if (ds) {
+            if (cal) {
+                mmen_left[k][i] = x + side[i];
+                mmen_right[k][i] = x - side[i];
+            }
+            if (ds && !cal) {
                 int32_t sl = mulq15(xs, ds);
                 td_in_l[i] = (sl * (dsw ? gr : gl)) >> 12;
                 td_in_r[i] = (sl * (dsw ? gl : gr)) >> 12;
             }
         }
-        if (ds || (td[k].on && out < BUS_OFF)) {
+        if (cal) calibrated_delay(t, k, out < BUS_OFF ? bl : 0, out < BUS_OFF ? br : 0,
+                                  out < BUS_OFF ? mmen_left[k] : 0, out < BUS_OFF ? mmen_right[k] : 0, n);
+        if (!cal && (ds || (td[k].on && out < BUS_OFF))) {
             if (!ds)
                 for (i = 0; i < n; i++)
                     td_in_l[i] = td_in_r[i] = 0;
@@ -635,8 +764,10 @@ static void mix_block(int32_t *out, uint32_t n)
     trk_post_on = 0;
     lfo_apply(n);                                       /* LFOs: the modulated knobs for this block (lfo.c) */
     events_block(n);
+    mmen_lfo_prepare(n);
     perf = perf_begin(n);                               /* the FX hold layer at work (perform.c) */
     drum_block_begin();
+    cal_render_parallel(n);
     {
         uint32_t src = comp_src();
         if (src != comp_was) {                          /* another source, or OFF: a fresh detector (comp_was:
@@ -657,10 +788,37 @@ static void mix_block(int32_t *out, uint32_t n)
     lfo_restore();                                      /* the knobs as set again */
     if (perf)
         perf_pre(mix_l, mix_r, send_d, send_r, n);  /* THROW */
+    if (!bfx.bus_ready) {
+        mmb_tape_init(&bfx.tape, tape_buf);
+        mmb_crunch_init(&bfx.crunch);
+        mmb_hiss_init(&bfx.hiss);
+        mmb_reverb_init(&bfx.reverb, rev_comb);
+        bfx.bus_ready = 1;
+    }
     fx_buses(send_c, send_d, send_r, wet, n);
+    for (i = 0; i + 16u <= n; i += 16u) {
+        if (song.g[G_TAPE] || song.g[G_ADPC] || song.g[G_HISS] || song.g[G_DRIVE]) {
+            uint32_t j;
+            for (j = i; j < i + 16u; j++) {
+                mix_l[j] = clamp(mix_l[j] + wet[j] + stereo_wet[j], -32767, 32767);
+                mix_r[j] = clamp(mix_r[j] + wet[j] - stereo_wet[j], -32767, 32767);
+                wet[j] = stereo_wet[j] = 0;
+            }
+            mmb_tape_block(&bfx.tape, song.g[G_TAPE], mix_l + i, mix_r + i);
+            mmb_crunch_block(&bfx.crunch, song.g[G_ADPC], mix_l + i, mix_r + i);
+            mmb_hiss_block(&bfx.hiss, song.g[G_HISS], song.playing, mix_l + i, mix_r + i);
+            if (song.g[G_DRIVE]) {
+                int32_t drive = mmb_t_driv[song.g[G_DRIVE] & 127];
+                for (j = i; j < i + 16u; j++) {
+                    mix_l[j] = mmb_limit((mix_l[j] * drive) >> 8);
+                    mix_r[j] = mmb_limit((mix_r[j] * drive) >> 8);
+                }
+            }
+        }
+    }
     for (i = 0; i < n; i++) {                           /* the master level */
-        mix_l[i] = (clamp((mix_l[i] + wet[i]) >> 2, -524287, 524287) * mg) >> 10;
-        mix_r[i] = (clamp((mix_r[i] + wet[i]) >> 2, -524287, 524287) * mg) >> 10;   /* fits Q12 */
+        mix_l[i] = (clamp((mix_l[i] + wet[i] + stereo_wet[i]) >> 2, -524287, 524287) * mg) >> 10;
+        mix_r[i] = (clamp((mix_r[i] + wet[i] - stereo_wet[i]) >> 2, -524287, 524287) * mg) >> 10;   /* fits Q12 */
     }
     if (perf)
         perf_block(mix_l, mix_r, n);                    /* the FX layer's effects (perform.c) */

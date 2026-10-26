@@ -5,6 +5,19 @@ own history is in its repository.
 
 ## Unreleased
 
+## 0.7.0 - 2026-10-26
+
+- Add 19 separately selectable calibrated machines from MONO2K, preserving legacy model IDs and algorithms.
+- Port the complete AMP, filter, EQ, distortion, VOL, stereo pan/LEVEL and modulation-effect chain, with raw parameter values and fractional LFO modulation.
+- Import 24 current and 96 historical complete factory sounds. Audition/cancel restores the full sound. Seven banks contain 330 factory presets in total.
+- Restore STRNG, PIPE, CHORD and MODAL FX; add tape, adaptive crunch, hiss/dust, bus drive and stereo reverb. Calibrated delays retain stereo and share the existing track buffers.
+- Add source LFO target/phase controls, DESTROY and MOD FX pages, independent sound VOL, held-key arpeggiation and chromatic MIDI input on channels 1–6 for calibrated tracks.
+- Migrate saved MNM3 projects to MNM4 without rewriting flash automatically. Legacy user slots remain intact; full calibrated user saves require the expanded store.
+- Limit calibrated preview work per LCD frame. Add source differential tests, storage power-cut tests and a target multiply-scheduling regression check.
+- Add a second-core worker for independent calibrated synth renders; routing, dependent SID/FX tracks and mixing retain their original order. Serial/threaded output and state match in sanitizer tests; hardware timing remains unverified.
+- VOX consonant and vowel-switch controls remain unimplemented in the source and display `n/a`. Calibration evidence comes from an emulator, not new measurements of physical hardware.
+
+
 ## 0.6.1 - 2026-10-26
 
 - ORGAN and ROBOT: adjusted their sound knobs to bring both within 6 dB of the synth bank median. Preset ids and saved projects stay compatible.

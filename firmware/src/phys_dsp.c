@@ -308,45 +308,69 @@ static const uint32_t PX_MEMB_IDEAL[PX_NMEMB] = {65536, 104421, 139955, 150432, 
 static const uint32_t PX_MEMB_LOADED[PX_NMEMB] = {65536, 131072, 196608, 197263, 262144, 261489, 327680, 328991, 326369, 393216};
 static const uint8_t PX_MEMB_M[PX_NMEMB] = {0, 1, 2, 0, 3, 1, 4, 2, 0, 5};   /* (m, n): m nodal diameters */
 
+/* MEMB isolates its wide products from table/state loads on the target CPU.
+ * Keep shared PHYS primitives unchanged for the other legacy algorithms. */
+static __attribute__((noinline)) int32_t px_memb_mul(int32_t a,int32_t b,unsigned shift)
+{ return (int32_t)(((int64_t)a*b)>>shift); }
+/* Fixed nonzero shift prevents call-site specialization from returning an
+ * unconsumed product. The caller restores its parity bit exactly. */
+static __attribute__((noinline)) uint64_t px_memb_umul32(uint32_t a,uint32_t b)
+{ return ((uint64_t)a*b)>>1; }
+static uint64_t px_memb_umul(uint64_t a,uint64_t b,unsigned shift)
+{
+    uint64_t low=(px_memb_umul32((uint32_t)a,(uint32_t)b)<<1)|(a&b&1u);
+    uint32_t high=(uint32_t)(a>>32)*(uint32_t)b+(uint32_t)a*(uint32_t)(b>>32);
+    return (low+((uint64_t)high<<32))>>shift;
+}
+
+/* The membrane uses modal Q with structure zero. Isolate this call site too:
+ * the optimizer may inline shared px_modal_q into the membrane block. */
+static uint64_t px_memb_q(int32_t b,int32_t d,int32_t *ql)
+{
+    int32_t bb=px_memb_mul(b,65536-px_memb_mul(d,19661,16),16);
+    *ql=px_memb_mul(px_memb_mul(bb,131072-bb,16),55706,16)+9830;
+    return px_memb_umul(500u,px_exp2(px_memb_mul(d,870537,16)),8);
+}
+
 /* as px_modal_block (struck only); harm, pos: Q16 0..1, bend: semitones Q16 */
 static __attribute__((noinline)) void px_memb_block(px_modal_blk_t *B, px_modal_t *M, uint32_t f0, int32_t harm, int32_t brightness,
                                                     int32_t damping, int32_t accent, int32_t pos, int32_t bend)
 {
-    int32_t b = brightness + px_m(accent >> 2, 65536 - brightness, 16);
-    int32_t d = damping + px_m(accent >> 2, 65536 - damping, 16);
+    int32_t b = brightness + px_memb_mul(accent >> 2, 65536 - brightness, 16);
+    int32_t d = damping + px_memb_mul(accent >> 2, 65536 - damping, 16);
     int32_t ql, w[6], pm = pos + (pos >> 1), inv;
     uint32_t i;
     uint64_t q8, f = f0;
     if (M->trig)
         M->benv = 65536;
     if (M->benv) {                                       /* the bend: f 2^(bend benv / 12), benv -> 0 in ~60 ms */
-        f = (f * px_exp2(px_m(bend, M->benv, 16) / 12)) >> 16;
-        M->benv = px_m(M->benv, 64220, 16);              /* 0.98 per block of 32 */
+        f = px_memb_umul(f,px_exp2(px_memb_mul(bend,M->benv,16)/12),16);
+        M->benv = px_memb_mul(M->benv, 64220, 16);              /* 0.98 per block of 32 */
         if (M->benv < 64)
             M->benv = 0;
     }
     if (f > 0x40000000u)
         f = 0x40000000u;
     px_modal_exciter(B, M, (uint32_t)f, brightness, b, d, accent, 0);
-    q8 = px_modal_q(0, b, d, &ql);
-    w[0] = 65536 - px_m(pos, 39322, 16);                 /* m = 0: 1 at the centre, 0.4 at the rim */
+    q8 = px_memb_q(b, d, &ql);
+    w[0] = 65536 - px_memb_mul(pos, 39322, 16);                 /* m = 0: 1 at the centre, 0.4 at the rim */
     w[1] = pm > 65536 ? 65536 : pm;                      /* m > 0: (1.5 pos)^m, at most 1 */
     for (i = 2; i < 6u; i++)
-        w[i] = px_m(w[i - 1], w[1], 16);
+        w[i] = px_memb_mul(w[i - 1], w[1], 16);
     for (i = 0; i < PX_NMEMB; i++) {
-        uint32_t r = PX_MEMB_IDEAL[i] + (uint32_t)px_m((int32_t)(PX_MEMB_LOADED[i] - PX_MEMB_IDEAL[i]), harm, 16);
-        uint64_t mf = (f * r) >> 16;
+        uint32_t r = PX_MEMB_IDEAL[i] + (uint32_t)px_memb_mul((int32_t)(PX_MEMB_LOADED[i] - PX_MEMB_IDEAL[i]), harm, 16);
+        uint64_t mf = px_memb_umul(f,r,16);
         px_svf_t c;
         if (mf >= 2143260078u)
             break;
-        px_svf_coef(&c, (uint32_t)mf, (uint32_t)(256u + ((mf * q8) >> 32)));
+        px_svf_coef(&c, (uint32_t)mf, (uint32_t)(256u + px_memb_umul(mf,q8,32)));
         B->m[i].g = c.g;
         B->m[i].rpg = c.rpg;
         B->m[i].gh = c.gh;
         inv = (int32_t)(((uint64_t)1 << 32) / r);
-        B->m[i].a = px_m(px_m(w[PX_MEMB_M[i]] << 14, 65536 - (int32_t)(mf >> 15), 18),   /* w (1 - 2 f) / ratio^2, */
-                         px_m(inv, inv, 16), 16);        /* Q28: a mode's level from the strike rises as ratio^2 */
-        q8 = (q8 * (uint32_t)ql) >> 16;
+        B->m[i].a = px_memb_mul(px_memb_mul(w[PX_MEMB_M[i]] << 14, 65536 - (int32_t)(mf >> 15), 18),   /* w (1 - 2 f) / ratio^2, */
+                         px_memb_mul(inv, inv, 16), 16);        /* Q28: a mode's level from the strike rises as ratio^2 */
+        q8 = px_memb_umul(q8,(uint32_t)ql,16);
     }
     B->n = i;
     for (; i < PX_NMODE; i++)

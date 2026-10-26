@@ -12,6 +12,72 @@ static const int8_t ARP_CHORD[12][5] = {   /* semitones over the note, -1 ends (
 enum { AM_OFF, AM_UP, AM_DOWN, AM_UPDN, AM_RND, AM_ORDR };
 static uint8_t arp_self;                                 /* the ARP's own notes: drum_play starts no new run */
 
+/* MONO2K live arpeggiator laws, GPL-3.0-only, Inigo Hernandez.
+ * https://github.com/InigoHernandez/mono2k
+ * Calibrated models use held notes, not the legacy fixed CHORD menu or steps.
+ * arp_pos is the source countdown in Q8 samples for these models. */
+static uint8_t mmarp_held[NTRK][8],mmarp_nheld[NTRK];
+static unsigned mmarp_mode(const track_t *t) { return (unsigned)clamp(t->p[P_ARPM],0,127)*6u>>7; }
+static int mmarp_track(const track_t *t) { return mmen_is_model((unsigned)t->p[P_MODEL]); }
+static uint32_t mmarp_random(uint32_t *s) { if(!*s)*s=0x2000u;*s^=*s<<13;*s^=*s>>17;*s^=*s<<5;return *s; }
+/* Ordered notes are repeated octave-major. ORDR preserves key insertion order;
+ * all other modes sort the held keys first. Index remains within its cycle. */
+static int32_t mmarp_next(const uint8_t *held,unsigned count,unsigned mode,unsigned range,
+                         uint32_t *index,uint32_t *rng)
+{
+ uint8_t notes[8];if(!count)return 0;if(count>8)count=8;
+ for(unsigned j=0;j<count;j++)notes[j]=held[j];
+ if(mode!=AM_ORDR)for(unsigned j=1;j<count;j++)for(unsigned k=j;k>0&&notes[k-1]>notes[k];k--) {
+  uint8_t v=notes[k];notes[k]=notes[k-1];notes[k-1]=v;
+ }
+ unsigned oct=1+((range>127?127:range)*4>>7),n=count*oct,i;
+ switch(mode) {
+ case AM_DOWN:i=*index%n;*index=(i+1)%n;i=n-1-i;break;
+ case AM_UPDN:{unsigned period=n>1?2*n-2:1,q=*index%period;i=q<n?q:period-q;*index=(q+1)%period;break;}
+ case AM_RND:i=mmarp_random(rng)%n;break;
+ default:i=*index%n;*index=(i+1)%n;break;
+ }
+ return notes[i%count]+12*(int32_t)(i/count);
+}
+static uint32_t mmarp_period_q8(const track_t *t)
+{
+ unsigned bpm=(unsigned)song.g[G_BPM];if(!bpm)bpm=1;
+ uint32_t step=song.g[G_CLOCK]?beat_samples()*64u:169344000u/bpm;
+ unsigned speed=(unsigned)clamp(t->p[P_ARPS],0,127)*4u>>7;
+ return (step*(4u<<speed))>>3;
+}
+static void mmarp_held_on(track_t *t,unsigned note)
+{
+ unsigned k=mmen_index(t);if(k>=NTRK||!mmarp_track(t)||note>127)return;
+ for(unsigned i=0;i<mmarp_nheld[k];i++)if(mmarp_held[k][i]==note)return;
+ if(mmarp_nheld[k]>=8)return;
+ mmarp_held[k][mmarp_nheld[k]++]=(uint8_t)note;
+ if(mmarp_nheld[k]==1){t->arp_k=0;t->arp_pos=0;}
+ t->arp_nt=(int8_t)((int)note-60);t->arp_on=mmarp_mode(t)!=AM_OFF;
+}
+static void mmarp_held_off(track_t *t,unsigned note)
+{
+ unsigned k=mmen_index(t);if(k>=NTRK)return;
+ unsigned j=0;for(unsigned i=0;i<mmarp_nheld[k];i++)if(mmarp_held[k][i]!=note)mmarp_held[k][j++]=mmarp_held[k][i];
+ mmarp_nheld[k]=(uint8_t)j;if(!j)t->arp_on=0;
+}
+static void mmarp_reset(void) { memset(mmarp_nheld,0,sizeof mmarp_nheld); }
+static void mmarp_tick(track_t *t,uint32_t n)
+{
+ unsigned k=mmen_index(t),mode=mmarp_mode(t);
+ if(k>=NTRK||!mode||!mmarp_nheld[k]){t->arp_on=0;return;}
+ t->arp_on=1;
+ /* Live parents own gate duration. Child notes never replace that countdown. */
+ if(!dv_gate_open(t,&t->v[0])){t->arp_on=0;return;}
+ int32_t left=(int32_t)t->arp_pos-(int32_t)(n*256u);
+ if(left>0){t->arp_pos=(uint32_t)left;return;}
+ left+=(int32_t)mmarp_period_q8(t);t->arp_pos=(uint32_t)left;
+ int32_t note=mmarp_next(mmarp_held[k],mmarp_nheld[k],mode,(unsigned)clamp(t->p[P_ARPR],0,127),&t->arp_k,&t->rng);
+ uint32_t gate=t->gate_n;int8_t nt=t->nt;
+ arp_self=1;drum_play(t,100u,clamp(note-60,NT_MIN,NT_MAX));arp_self=0;
+ t->gate_n=gate;t->nt=nt;
+}
+
 static uint32_t arp_chord_n(const int16_t *p)
 {
     const int8_t *c = ARP_CHORD[clamp(p[P_ARPC], 0, 11)];
@@ -26,6 +92,11 @@ static void arp_note(track_t *t, int glide)
 {
     if (arp_self)
         return;
+    if(mmarp_track(t)) {
+        unsigned k=mmen_index(t);
+        t->arp_on=k<NTRK&&mmarp_nheld[k]&&mmarp_mode(t)!=AM_OFF;
+        return;
+    }
     if (!t->p[P_ARPM] || !trk_model(t)->gate) {
         t->arp_on = 0;
         return;
@@ -71,6 +142,7 @@ static int32_t arp_offset(track_t *t, uint32_t k) { return arp_off(t->p, k, &t->
 static void arp_tick(track_t *t, uint32_t n)
 {
     uint32_t len;
+    if(mmarp_track(t)){mmarp_tick(t,n);return;}
     if (!t->arp_on)
         return;
     if (!t->p[P_ARPM] || !dv_gate_open(t, &t->v[0])) {

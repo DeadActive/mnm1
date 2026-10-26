@@ -12,6 +12,69 @@
  * an LFO on another LFO's knob moves that one in the same block. */
 static uint32_t beat_samples(void);               /* fx.c: a quarter note, the clock's when following */
 
+/* Calibrated LFOs retain raw controls and fractional Q8 modulation. The legacy
+ * CTL cadence remains unchanged; each calibrated slice is exactly 16 samples. */
+#define MML_SIN mm2_sinp
+#include "mm_lfo.h"
+#undef MML_SIN
+static mml_state mmen_lfo_state;
+static uint32_t mmen_lfo_rng = 0x2000u;
+static uint8_t mmen_lfo_used;
+static void mmen_lfo_reset(void)
+{
+    mmen_lfo_used = 0;
+    mml_init(&mmen_lfo_state);
+    mmen_lfo_rng = 0x2000u;
+    memset(mmen_delta, 0, sizeof mmen_delta);
+}
+/* Cross modulation into a legacy track is deliberately outside the calibrated
+ * model family. Remove it also before evaluating controls, so it cannot enable
+ * a disabled legacy track's synthetic source LFO in the following block. */
+static void mmen_lfo_filter(void)
+{
+    unsigned out = 0;
+    for (unsigned i = 0; i < mmen_lfo_state.count; ++i) {
+        mml_mod m = mmen_lfo_state.mod[i];
+        if (mmen_is_model(trk[m.track].model)) mmen_lfo_state.mod[out++] = m;
+    }
+    mmen_lfo_state.count = (uint8_t)out;
+}
+static void mmen_lfo_prepare(uint32_t n)
+{
+    unsigned calibrated = 0;
+    for (unsigned t = 0; t < NTRK; ++t)
+        if (mmen_is_model(trk[t].model)) calibrated |= 1u << t;
+    if (!calibrated) {
+        /* Legacy-only playback pays six model checks, no buffers, tempo division
+         * or source LFO work. Clear departed calibrated state exactly once. */
+        if (mmen_lfo_used) mmen_lfo_reset();
+        return;
+    }
+    mmen_lfo_used = 1;
+    uint8_t raw[NTRK][3][8];
+    unsigned slices = (n + 15u) / 16u;
+    if (slices > (CTL + 15u) / 16u) slices = (CTL + 15u) / 16u;
+    memset(raw, 0, sizeof raw);
+    for (unsigned t = 0; t < NTRK; ++t)
+        if (calibrated & (1u << t))
+            for (unsigned l = 0; l < 3; ++l)
+                for (unsigned p = 0; p < 8; ++p)
+                    raw[t][l][p] = mm_control_raw(trk[t].p[MM_CONTROL_ID[42 + l * 8 + p]]);
+    uint32_t quarter = beat_samples();
+    uint32_t tempo10 = quarter ? (uint32_t)FS * 600u / quarter : (uint32_t)song.g[G_BPM] * 10u;
+    mmen_lfo_filter();
+    memset(mmen_delta, 0, sizeof mmen_delta);
+    for (unsigned b = 0; b < slices; ++b) {
+        mml_block(&mmen_lfo_state, raw, tempo10, &mmen_lfo_rng, (int)song.sel);
+        mmen_lfo_filter();
+        for (unsigned i = 0; i < mmen_lfo_state.count; ++i) {
+            const mml_mod *m = &mmen_lfo_state.mod[i];
+            mmen_delta[b][m->track][m->param] = m->value;
+        }
+    }
+}
+
+
 /* the knobs of the pages an LFO's PAGE names (knob 1..8 = DEST 0..7); PTCH has none (lfo_pitch) */
 static const uint8_t LFO_PAGE_ID[LP_PTCH][8] = {
     {P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7},
@@ -148,6 +211,7 @@ static uint32_t lfo_slot(track_t *t, uint32_t pid)
  * waits) unless HOLD (its value at the next note) */
 static void lfo_track(track_t *t, uint32_t n)
 {
+    if (mmen_is_model(t->model)) { t->lpit = 0; t->lon = 0; return; }
     uint32_t l, on = 0;
     int32_t pit = 0, sum[4] = {0, 0, 0, 0};
     for (l = 0; l < NLFO; l++) {
@@ -207,6 +271,16 @@ static void lfo_restore(void)
  * (the trigger reads them next) */
 static void lfo_hit(track_t *t)
 {
+    if (mmen_is_model(t->model)) {
+        unsigned index = mmen_index(t);
+        if (index < NTRK) {
+            mmen_lfo_used = 1;
+            uint8_t sound[71];
+            mm_controls_get(t, sound);
+            mml_trigger(&mmen_lfo_state, index, (const uint8_t (*)[8])(sound + 42));
+        }
+        return; /* graph/audition scratch tracks never advance the song LFOs */
+    }
     uint32_t l, any = 0;
     for (l = 0; l < NLFO; l++) {
         uint32_t tm = (uint32_t)clamp(t->p[lfo_base(l) + LF_TRIG], 0, LT_HALF);
@@ -231,6 +305,7 @@ static void lfo_start(void)
     uint32_t i, l;
     for (i = 0; i < NTRK; i++) {
         track_t *t = &trk[i];
+        if (mmen_is_model(t->model)) { lfo_hit(t); continue; }
         t->lrng = 0x2545F491u * (i + 1u);
         for (l = 0; l < NLFO; l++)
             if (t->p[lfo_base(l) + LF_TRIG] != LT_FREE) {
@@ -247,6 +322,18 @@ static void lfo_start(void)
 /* the UI: the knob pid of t is moved now, to *val (its set value + every LFO on it, at their last block) */
 static int lfo_live(const track_t *t, uint32_t pid, int32_t *val)
 {
+    if (mmen_is_model(t->model)) {
+        unsigned index = mmen_index(t);
+        if (index >= NTRK) return 0;
+        for (unsigned p = 0; p < 71; ++p) if (MM_CONTROL_ID[p] == pid) {
+            int32_t delta = mml_delta(&mmen_lfo_state, index, p);
+            if (!delta) return 0;
+            int32_t raw = ((int32_t)t->p[pid] + mm_control_bias(p)) * 256 + delta;
+            *val = (clamp(raw, 0, 127 * 256) >> 8) - mm_control_bias(p);
+            return 1;
+        }
+        return 0;
+    }
     uint32_t l, hit = 0;
     int32_t sum = 0;
     const param_desc_t *d = track_desc(t, pid);
@@ -263,4 +350,11 @@ static int lfo_live(const track_t *t, uint32_t pid, int32_t *val)
     return 1;
 }
 
-static int32_t lfo_out(const track_t *t, uint32_t l) { return t->lfo[l < NLFO ? l : 0].out; }
+static int32_t lfo_out(const track_t *t, uint32_t l)
+{
+    if (mmen_is_model(t->model)) {
+        unsigned index = mmen_index(t);
+        return index < NTRK ? mmen_lfo_state.voice[index][l < NLFO ? l : 0].value : 0;
+    }
+    return t->lfo[l < NLFO ? l : 0].out;
+}

@@ -99,6 +99,7 @@ def generate():
     tools = SRC / "tools"
     cmds = [[tools / "gen_font.py", GEN / "felucca_font.h"],
             [tools / "gen_tables.py", GEN / "felucca_tables.h"],
+            [tools / "gen_reson_tables.py", GEN / "reson_tables.h"],
             [tools / "gen_samples.py", GEN / "felucca_samples.h"]]
     procs = [subprocess.Popen([sys.executable, *map(str, c)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True) for c in cmds]
@@ -195,6 +196,8 @@ def build_app():
     # FELUCCA_CORE_REF=1: its core unit (FELUCCA_BLE=1) linked with empty BLE entry points (ble_stub.c), no libraries
     ble = os.environ.get("FELUCCA_BLE") == "1"
     core_ref = os.environ.get("FELUCCA_CORE_REF") == "1"
+    dual_core = not (ble or core_ref) and os.environ.get("FELUCCA_DUAL_CORE", "1") == "1"
+    flags.append(f"-DFELUCCA_DUAL_CORE={int(dual_core)}")
     if core_ref and not ble:
         flags.append("-DFELUCCA_BLE=1")
     for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_CDC", "FELUCCA_UART",
@@ -204,7 +207,7 @@ def build_app():
             flags.append(f"-D{flag}={v}")
     flags.append(f'-DFELUCCA_ID="{PRODUCT}"')
     flags.append(f'-DFELUCCA_VERSION="{VERSION or drum_version.firmware_string(drum_version.read())}"')
-    asm = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
+    asm = [("cc", "-c", f"-DFELUCCA_DUAL_CORE={int(dual_core)}", FW / "crt0.S", "-o", OUT / "crt0.o"),
            ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
            ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o")]
     cfg_objs = []
@@ -300,6 +303,14 @@ def build_app():
                                ("common/bin/objdump", "-d", elf),
                                ("common/bin/objdump", "-d", "-j", ".ram_text", elf))
     (OUT / "felucca.dis").write_text(dis)
+    import check_mul64
+    wide_count, hazards = check_mul64.scan(dis)
+    baseline = check_mul64.load_baseline(SRC / "tools" / "mul64-baseline-0.6.1.json")
+    inherited, introduced = check_mul64.classify(dis, hazards, baseline)
+    if introduced:
+        raise SystemExit("build: new wide multiply scheduling hazards:\n" +
+                         "\n".join(h.describe() for h in introduced))
+    print(f"mul64 check: {wide_count} wide multiplies, {len(inherited)} inherited unresolved hazards, no new hazards")
 
     def symv(name):
         return int(re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M).group(1), 16)
@@ -353,11 +364,10 @@ def check(img, syms, dis, rt, ble=False, measure=False):
         else:
             notes.append(f".ram_text: {insns} insns, {n_calls} calls, all inside .ram_text, no XIP address")
     else:
-        rt_calls = [ln for ln in rt.splitlines() if re.search(r"\bcall\b", ln)]
-        if rt_calls:                # RAM code runs with the flash off: no calls into XIP
-            errors.append(f".ram_text contains calls: {rt_calls[:3]}")
-        else:
-            notes.append(f".ram_text: {insns} insns, no calls")
+        import check_audio_worker
+        worker_errors, worker_notes = check_audio_worker.check(rt, syms)
+        errors.extend(worker_errors)
+        notes.extend(worker_notes)
     for ln in dis.splitlines():     # nothing may call or load an address in the chip ROM
         mm = LINE.match(ln)
         if not mm:

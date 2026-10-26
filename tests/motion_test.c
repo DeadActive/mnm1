@@ -334,8 +334,27 @@ static void test_continue_base(void)
     render_mix(0, 0, CTL);
 }
 
+static void test_highest_parameter(void)
+{
+    fresh();
+    check("highest parameter crosses the fourth motion word", P_PTCH == P_COUNT - 1 && P_PTCH >= 96);
+    trk[0].p[P_PTCH] = 64;
+    motion_add(0, 2, P_PTCH, 91);
+    mo.s.on = 1u;
+    play(); to_step(2, 100);
+    check("highest parameter lock plays", trk[0].p[P_PTCH] == 91 && motion_moved(0, P_PTCH));
+    stop();
+    check("highest parameter STOP restores", trk[0].p[P_PTCH] == 64 && !motion_moved(0, P_PTCH));
+    play(); to_step(2, 100);
+    motion_clear(0);
+    check("highest parameter clear restores and removes lock",
+          trk[0].p[P_PTCH] == 64 && !motion_moved(0, P_PTCH) && !motion_count(0));
+    stop();
+}
+
 int main(void)
 {
+    test_highest_parameter();
     test_record_nearest();
     test_not_recording();
     test_recordable_list();

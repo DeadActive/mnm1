@@ -40,6 +40,7 @@ assets, is entirely governed by the GPL.
 
 | What | Licence | Where |
 | --- | --- | --- |
+| MONO2K by Inigo Hernandez (<https://github.com/InigoHernandez/mono2k>), revision `78d7cdfd676dd8a88a06e6b794fbcfb5fa2b1537`: calibrated machines, audio chain, effects, LFOs, arpeggiator laws and full factory sounds | GPL-3.0-only | `firmware/src/mm_*.h`, `mm_engine.c`, credited ports and tests; sound provenance in `tests/mono2k_sounds.json` |
 | Instrument samples (Versilian Studios VSCO-2 CE, VCSL) | CC0 1.0 | `assets/samples-cc0/`, provenance in `ATTRIBUTION.txt` there |
 | Terminus font 8x16 (ter-u16n): the web pages' typeface (`tests/sim_font.mjs`); no longer in the firmware | SIL OFL 1.1 | `assets/fonts/ter-u16n.bdf`, `assets/fonts/Terminus-LICENSE.txt` |
 | UnifrakturMaguntia (j. 'mach' wust, Peter Wiegel): the boot screen study (`tools/boot_variants.py`; no longer in the firmware: the screens are drawn in the pixel font below) | SIL OFL 1.1 | `assets/fonts/UnifrakturMaguntia-Book.ttf`, `assets/fonts/UnifrakturMaguntia-LICENSE.txt` |

@@ -2,6 +2,9 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FM-1 drum machine (Felucca fork): one compilation unit (the HAL is header-only). Order matters. */
 #include <stdint.h>
+#ifndef FELUCCA_DUAL_CORE
+#define FELUCCA_DUAL_CORE (!FELUCCA_BLE)
+#endif
 #include "fm1_time.h"
 #include "fm1_sys.h"
 #include "fm1_irq.h"
@@ -10,6 +13,9 @@
 #include "fm1_timer.h"
 #include "fm1_audio.h"
 #include "fm1_adc.h"
+#if FELUCCA_DUAL_CORE
+#include "fm1_multicore.h"
+#endif
 #include "fm1_lcd_hw.h"
 #include "felucca_tables.h"
 

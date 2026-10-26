@@ -69,6 +69,13 @@ enum {                          /* per-track parameters */
     P_EQF, P_EQG,                /* EFFECTS (fx.c track_eq): the EQ's frequency, gain (64: 0 dB, off) */
     P_DTIM, P_DFB, P_DBAS, P_DWID,   /* EFFECTS: the track's delay (fx.c track_delay): TIME (1/256 notes), FEEDBACK
                                       * (64: unity), the loop's high-pass BASE and low-pass WIDTH over it */
+    P_MVOL,                     /* calibrated sound VOL; mixer LEVEL stays separate */
+    P_BITS, P_FOLD, P_XOR, P_SPU,
+    P_MODT, P_MODR, P_MODD, P_MODM,
+    P_WBNK,
+    P_L1TRK, P_L2TRK, P_L3TRK,
+    P_L1PHS, P_L2PHS, P_L3PHS,
+    P_PTCH,                     /* calibrated pitch offset, raw 64 = neutral */
     P_COUNT
 };
 #define P_NSTORED P_COUNT        /* the parameters in a project's block: all (MNM-1's 6 tracks leave room) */
@@ -90,6 +97,7 @@ enum {                          /* global parameters */
     G_CATK, G_CKNEE, G_CMKUP,                        /* attack, soft knee, makeup (127 = limiter) */
     G_CGHOST,                                        /* a muted / any source heard: CG_MUTE CG_KEEP CG_HIDE (fx.c) */
     G_RTYPE,                                         /* REVERB TYPE (fx.c): 0 ROOM, 1 SPRING (sound pack, FDR7) */
+    G_TAPE, G_ADPC, G_HISS, G_DRIVE,
     G_COUNT
 };
 enum { CG_MUTE, CG_KEEP, CG_HIDE };                 /* GHOST: muted = muted; muted still keys; never heard, keys */

@@ -197,6 +197,15 @@ static void con_status(void)
     con_kv("cpu_pct", (int32_t)(song.cpu_q8 * 100u / 256u));
     con_kv("audio_max_us", (int32_t)felucca_dbg.max_us);
     con_kv("voices_shed", (int32_t)song.sheds);
+#if FELUCCA_DUAL_CORE
+    con_kv("core1_online", audio_worker_online);
+    con_kv("core1_jobs", audio_worker.jobs);
+    con_kv("core1_max_job_us", audio_worker.max_job_ticks / FM1_TICKS_PER_US);
+    con_kv("core1_max_wait_us", audio_worker.max_wait_ticks / FM1_TICKS_PER_US);
+    con_kv("core1_timeouts", audio_worker.timeouts);
+    con_kv("core1_user_stack_free", fm1_core1_stack_free(0));
+    con_kv("core1_supervisor_stack_free", fm1_core1_stack_free(1));
+#endif
     con_kv("track", (int32_t)song.sel + 1);
     con_puts("model ");
     con_puts(N_MODEL[(uint32_t)TSEL->p[P_MODEL] % NMODELS]);

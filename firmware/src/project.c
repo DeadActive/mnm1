@@ -1,19 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Drum machine fork: 2026 DEADACTIVE */
-/* Projects: four slots in .noinit RAM, so they survive resets and UBOOT entry. With FELUCCA_FLASH
- * every save also goes to flash through storage.c, and an empty RAM slot is filled from flash.
- * Format "MNM3" (MNM-1 0.5's: 240 PARAMETER LOCKS in the motion store; 0.4's "MNM2", the FILTER, EFFECTS and three
- * LFOs, and older records load as empty), after Hortator's last layout ("FDRE"): the globals, the selected track, per track every parameter
- * and its 64 steps (PROB / RATCH, each step's note, SLIDE and TIE), the motion (motion.c, 128 events), the song and the
- * project's name (song.c), each track's preset id and edited mark (presets.c). The slots of Hortator's LAYER and RESON
- * are MNM-1's AMP, FILTER WIDTH / ATTACK, SRR, LEN and ARP, so no Hortator record ("FDR1".."FDRE") is read: a slot
- * holding one loads as empty. The record fills a flash sector's payload (3840 B, ST_PAYLOAD_MAX); the parameters after
- * its block (P_NSTORED .., the ARP's CHORD) ride in a track's steps' spare byte (step_t.rsv: parameter P_NSTORED + j
- * in step j's, 0..255).
- * Felucca's formats ("FUN1".."FUN3") are not read. Settings + the panel table: as in Felucca. */
-#define PROJ_MAGIC 0x334D4E4Du                 /* "MNM3": MNM-1's (Hortator's FDRE layout, its LAYER and RESON slots the
-                                                 * AMP, FILTER, SRR, LEN and ARP: a Hortator record is never read) */
+/* Four reset-persistent RAM slots, backed by flash when available. MNM4 adds per-track
+ * parameters to MNM3; the flash reader validates and expands MNM3 in place. Older
+ * formats are not compatible. Legacy .noinit slots use a different stride and are
+ * deliberately ignored: flash is authoritative across this firmware upgrade. */
+#define PROJ_MAGIC 0x344D4E4Du                 /* "MNM4" */
+#define PROJ_V3_MAGIC 0x334D4E4Du              /* "MNM3" */
+#define PROJ_V3_PARAMS 80u
+#define PROJ_V3_GLOBALS 41u
 typedef struct {
     int16_t p[P_NSTORED];                       /* the block; P_NSTORED + j: step[j].rsv (proj_xp_*) */
     step_t step[NSTEP];
@@ -40,6 +35,25 @@ typedef struct {
     uint8_t pre_ed[NTRK];                       /* FDRD: .. edited since (0 / 1) */
     uint32_t sum;
 } project_t;
+/* Fixed old layout: do not use P_COUNT here when adding parameters. */
+typedef struct {
+    int16_t p[PROJ_V3_PARAMS];
+    step_t step[NSTEP];
+} mnm_proj_v3_trk_t;
+typedef struct {
+    uint32_t magic, size;
+    int16_t g[PROJ_V3_GLOBALS];
+    uint8_t sel, rsv[3];
+    mnm_proj_v3_trk_t t[NTRK];
+    motion_store_t motion;
+    chain_config_t song;
+    char name[NAME_LEN];
+    uint16_t pre[NTRK];
+    uint8_t pre_ed[NTRK];
+    uint32_t sum;
+} mnm_project_v3_t;
+_Static_assert(sizeof(mnm_project_v3_t) == 3624u, "MNM3 layout changed");
+_Static_assert(P_NSTORED >= PROJ_V3_PARAMS, "MNM4 parameter block shrank");
 typedef char project_size[sizeof(project_t) <= 3840u ? 1 : -1];   /* (MNM-1: 6 tracks, room left) */
 project_t proj_slot[4] __attribute__((section(".noinit")));
 
@@ -54,12 +68,46 @@ static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
 static uint32_t proj_sum(const project_t *p) { return proj_hash(p, sizeof *p - 4u); }
 static int proj_ok(const project_t *q) { return q->magic == PROJ_MAGIC && q->size == sizeof *q && q->sum == proj_sum(q); }
 
+/* Destination is above source. Backwards copying avoids a second project buffer
+ * and a 3.6 KiB stack allocation on the device. */
+static void proj_expand_copy(void *dst, const void *src, uint32_t n)
+{
+    uint8_t *d = dst;
+    const uint8_t *s = src;
+    while (n) { --n; d[n] = s[n]; }
+}
+static int proj_decode(project_t *q, uint32_t n)
+{
+    const mnm_project_v3_t *old = (const mnm_project_v3_t *)(const void *)q;
+    uint32_t k, i;
+    if (n == sizeof *q && proj_ok(q))
+        return 1;
+    if (n != sizeof *old || old->magic != PROJ_V3_MAGIC || old->size != sizeof *old ||
+        old->sum != proj_hash(old, sizeof *old - 4u))
+        return 0;
+    proj_expand_copy(&q->motion, &old->motion,
+                     (uint32_t)((const uint8_t *)&old->sum - (const uint8_t *)&old->motion));
+    for (k = NTRK; k--;) {
+        proj_expand_copy(q->t[k].step, old->t[k].step, sizeof old->t[k].step);
+        proj_expand_copy(q->t[k].p, old->t[k].p, sizeof old->t[k].p);
+        for (i = PROJ_V3_PARAMS; i < P_NSTORED; i++)
+            q->t[k].p[i] = TP[i].def;
+    }
+    proj_expand_copy(&q->sel, &old->sel, 4u);
+    for (i = PROJ_V3_GLOBALS; i < G_COUNT; i++)
+        q->g[i] = GP[i].def;
+    q->magic = PROJ_MAGIC;
+    q->size = sizeof *q;
+    q->sum = proj_sum(q);
+    return 1;
+}
+
 #if FELUCCA_FLASH
 static void proj_fetch(uint32_t slot)
 {
     project_t *q = &proj_slot[slot & 3u];
     int n = st_load(OBJ_PROJECT0 + (slot & 3u), q, sizeof *q);
-    if (n != (int)sizeof *q || !proj_ok(q))
+    if (n < 0 || !proj_decode(q, (uint32_t)n))
         q->magic = 0;
 }
 #endif
@@ -155,6 +203,9 @@ static int proj_load(uint32_t slot, int irq)
     transport_req = 2;
     if (irq)
         fm1_irq_off();                                  /* the audio ISR must not see half a project */
+    mmen_reset_all();
+    mmen_lfo_reset();
+    mmarp_reset();
     for (i = 0; i < G_COUNT; i++)
         if (i != G_SLOT && i != G_LOAD && i != G_SAVE)
             song.g[i] = (int16_t)(i == G_CLOCK && (p->g[i] < 0 || p->g[i] > GP[i].max)
@@ -166,6 +217,7 @@ static int proj_load(uint32_t slot, int irq)
         drum_cut(t);
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */
             const param_desc_t *d = i >= P_E0 && i <= P_E7 ? &DMODELS[m].edit[i - P_E0] : &TP[i];
+            if (mmen_is_model(m) && mm_control_desc(i)) d = mm_control_desc(i);
             t->p[i] = (int16_t)clamp(i < P_NSTORED ? s->p[i] : proj_xp_get(s, i), d->min, d->max);
         }
         t->p[P_MODEL] = (int16_t)m;
@@ -354,6 +406,10 @@ static int preset_user_save(uint32_t slot, const track_t *t)
     uint32_t k = (uint32_t)(t - trk);
     if (slot >= PRE_NUSER)
         return -1;
+    if (t->p[P_MODEL] >= MM_MODEL_FIRST) {
+        ui_message("FULL SOUND STORE NEEDED");
+        return -1;
+    }
     upr_set(slot, (uint32_t)t->p[P_MODEL], k < NTRK && ((mo.base_ok >> k) & 1u) ? mo.base[k] : t->p);
     upr_write();
     return 0;

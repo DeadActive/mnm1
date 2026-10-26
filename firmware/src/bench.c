@@ -68,7 +68,10 @@ static const char *const BENCH_OFF_NAME[] = {"", "-srr", "-dist", "-slicer", "-c
 #define BENCH_HEAVY BENCH_RESON
 #define BENCH_PHYS (BENCH_HEAVY + sizeof BENCH_HEAVY_OFF)
 #define BENCH_MORE (BENCH_PHYS + 2u)                      /* + PHYS-heavy, PHYS-heavy -dual */
-#define BENCH_N (BENCH_MORE + 8u)                         /* + the FILTER, COMP, sidechain, ACID and MNM-1 kit cases */
+#define BENCH_CAL (BENCH_MORE + 8u)                       /* appended: six calibrated tracks, full source effects */
+#define BENCH_N (BENCH_CAL + 4u)
+static const uint8_t BENCH_CAL_MODEL[4] = {DM_M2_GSIN, DM_M2_ENS, DM_M2_GNOI, DM_M2_VOX};
+static const char *const BENCH_CAL_NAME[4] = {"cal-gsin6-full", "cal-ens6-full", "cal-noise6-full", "cal-vox2-6-full"};
 #define BENCH_BPM_FAST 240                               /* the model cases: 1/32 notes, as drum_test's kit_cost */
 
 static char *bench_cat(char *s, const char *a)
@@ -94,8 +97,10 @@ static void bench_name(uint32_t c, char *s)
     } else if (c < BENCH_MORE) {
         s = bench_cat(s, "phys-heavy");
         bench_cat(s, c == BENCH_PHYS ? "" : "-dual");
-    } else {
+    } else if (c < BENCH_CAL) {
         bench_cat(s, BENCH_MORE_NAME[c - BENCH_MORE]);
+    } else {
+        bench_cat(s, BENCH_CAL_NAME[c - BENCH_CAL]);
     }
 }
 
@@ -105,6 +110,11 @@ typedef char bench_fx_fields[sizeof fx == 100u ? 1 : -1];
 static void bench_fx_clear(void)
 {
     uint32_t k;
+    memset(&bfx, 0, sizeof bfx);
+    memset(mmtd_profile, 0, sizeof mmtd_profile);
+    mmen_reset_all();
+    mmen_lfo_reset();
+    mmarp_reset();
     fx.dly_w = fx.cho_w = fx.cho_ph = 0;
     fx.dly_lp = 0;
     for (k = 0; k < 4u; k++) {
@@ -274,11 +284,61 @@ static void bench_heavy(int phys, uint32_t off)
     song.g[G_BPM] = 120;
 }
 
+/* Six held voices with source SYN knobs at maximum, full track inserts and
+ * three independent source LFOs, stereo ping-pong delay, SPU and the lofi bus.
+ * This is a stress workload for measurement, not a real-time performance claim.
+ * Keep transport stopped: an empty sequencer would close these held gates. */
+static void bench_calibrated(uint32_t model)
+{
+    song.g[G_BPM] = 120;
+    song.g[G_CSRC] = 0;
+    song.g[G_TAPE] = song.g[G_ADPC] = song.g[G_HISS] = song.g[G_DRIVE] = 127;
+    song.g[G_RTYPE] = 2;
+    for (unsigned k = 0; k < NTRK; ++k) {
+        track_t *t = &trk[k];
+        uint8_t raw[71];
+        drum_set_model(t, model);
+        mmen_default(t);
+        memset(t->step, 0, sizeof t->step);
+        t->p[P_CHOR] = t->p[P_REV] = t->p[P_SLCR] = t->p[P_MUTE] = 0;
+        t->p[P_OUT] = BUS_AB;
+        t->p[P_IN] = IN_NEIB;
+        t->p[P_FXG] = 1;
+        mm_controls_get(t, raw);
+        for (unsigned i = 0; i < 8; ++i) raw[i] = 127;
+        raw[MMA_ATK] = raw[MMA_REL] = 0;
+        raw[MMA_HOLD] = raw[MMA_DEC] = 127;
+        raw[MMA_EQG] = raw[MMA_DIST] = raw[MMA_SRR] = raw[MMA_BITS] = 127;
+        raw[MMA_FOLD] = raw[MMA_XOR] = raw[MMA_MODM] = raw[MMA_MODD] = raw[MMA_MODR] = 127;
+        raw[MMA_MODT] = 0;
+        raw[MMA_DSND] = raw[MMA_SPU] = 127;
+        raw[MMA_DFB] = 63;
+        raw[MMA_DTIM] = 16;
+        for (unsigned l = 0; l < 3; ++l) {
+            unsigned q = MMA_LFO + 8 * l;
+            raw[q] = mm_control_track(k);
+            raw[q + 1] = (uint8_t)(1 + (l == 0 ? MMA_BASE : l == 1 ? MMA_WDTH : MMA_EQG));
+            raw[q + 2] = 27;
+            raw[q + 3] = 0;
+            raw[q + 4] = raw[q + 5] = 127;
+            raw[q + 6] = 0;
+            raw[q + 7] = 96;
+        }
+        mm_controls_set(t, raw);
+        drum_play(t, 100, 0);
+        t->gate_n = GATE_HELD;
+    }
+}
+
 /* case c on a machine just reset (bench_reset); the transport starts (idle: stopped) */
 static void bench_setup(uint32_t c)
 {
     if (c == 0) {
         song.g[G_BPM] = 120;
+        return;
+    }
+    if (c >= BENCH_CAL) {
+        bench_calibrated(BENCH_CAL_MODEL[c - BENCH_CAL]);
         return;
     }
     if (c < BENCH_RESON)

@@ -63,6 +63,9 @@ static const page_t PAGES[] = {
     LFO_PAGES(P_LFO2, TAB_LF2),
     LFO_PAGES(P_LFO3, TAB_LF3),
 #undef LFO_PAGES
+    {"DESTROY", FAM_FX, SC_TRACK, GR_NONE, {P_BITS, P_FOLD, P_XOR, P_SPU}},
+    {"MOD FX", FAM_FX, SC_TRACK, GR_NONE, {P_MODT, P_MODR, P_MODD, P_MODM}},
+    {"LOFI", FAM_FX, SC_GLOBAL, GR_NONE, {G_TAPE, G_ADPC, G_HISS, G_DRIVE}},
     /* HOME's TRACKS mode (spec §3: a HOME tap on HOME; no button of its own): TRACK LEVEL LEN PAN */
     {"TRACKS", FAM_MIX, SC_MIX, GR_MIX, {0xFF, 0xFF, 0xFF, 0xFF}},
 };
@@ -89,6 +92,10 @@ static uint32_t snd_list(const track_t *t, uint8_t *ids)
     ids[n++] = P_PRIO;
     ids[n++] = P_REV;
     ids[n++] = P_CHOR;
+    if (m->mm >= 2u) {
+        ids[n++] = P_PTCH;
+        ids[n++] = P_WBNK;
+    }
     return n;
 }
 
@@ -101,6 +108,14 @@ static uint32_t page_id(const page_t *pg, uint32_t slot)
         uint8_t ids[16];
         uint32_t n = snd_list(TSEL, ids);
         return id - SND_SLOT < n ? ids[id - SND_SLOT] : 0xFFu;
+    }
+    if (pg->scope == SC_TRACK && DMODELS[(uint32_t)TSEL->p[P_MODEL] % NMODELS].mm >= 2u) {
+        if (pg->tab == TAB_AMP && id == P_LEVEL) id = P_MVOL;
+        if (pg->tab >= TAB_LF1 && pg->tab <= TAB_LF3) {
+            uint32_t l = pg->tab - TAB_LF1, base = lfo_base(l);
+            if (id == base + LF_PAGE) id = P_L1TRK + l;
+            if (id == base + LF_INTL) id = P_L1PHS + l;
+        }
     }
     if (pg->graph == GR_GRIDS && id >= G_GX && id <= G_GCHAOS && song.g[G_GMODE])
         id = G_GLEN1 + (id - G_GX);

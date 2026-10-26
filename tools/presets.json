@@ -936,6 +936,74 @@
     ],
     "source": "designed (MNM-1)",
     "note": "the machine's default: a sine carrier at the note"
+   },
+   {
+    "uid": 207,
+    "name": "STRING",
+    "model": "FXSTR",
+    "k": [
+     60,
+     90,
+     100,
+     40,
+     32,
+     127,
+     96,
+     64
+    ],
+    "source": "Hortator resonator defaults, adapted as FX",
+    "note": "the machine's default"
+   },
+   {
+    "uid": 208,
+    "name": "PIPE",
+    "model": "FXPIPE",
+    "k": [
+     60,
+     90,
+     100,
+     40,
+     32,
+     127,
+     96,
+     64
+    ],
+    "source": "Hortator resonator defaults, adapted as FX",
+    "note": "the machine's default"
+   },
+   {
+    "uid": 209,
+    "name": "RESONCHD",
+    "model": "FXCHORD",
+    "k": [
+     60,
+     90,
+     100,
+     40,
+     32,
+     127,
+     96,
+     64
+    ],
+    "source": "Hortator resonator defaults, adapted as FX",
+    "note": "the machine's default"
+   },
+   {
+    "uid": 210,
+    "name": "MODAL",
+    "model": "FXMODAL",
+    "k": [
+     60,
+     90,
+     100,
+     40,
+     32,
+     127,
+     96,
+     64
+    ],
+    "source": "Hortator resonator defaults, adapted as FX",
+    "note": "the machine's default"
    }
   ]
  },

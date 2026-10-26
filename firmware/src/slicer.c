@@ -109,7 +109,7 @@ static void sl_enter(const track_t *t, sl_t *s)
 }
 
 /* m samples of one step (no boundary inside) */
-static void sl_seg(const track_t *t, sl_t *s, int16_t *buf, int32_t *b, uint32_t m)
+static void sl_seg(const track_t *t, sl_t *s, int16_t *buf, int32_t *b, int32_t *side, uint32_t m)
 {
     uint32_t mode = (uint32_t)t->p[P_SLCR], j, nbit = (sl_pattern(t) >> ((s->idx + 1u) & 15u)) & 1u;
     int32_t depth = t->p[P_SLDEPTH] * 258;          /* Q15, 0..32766 */
@@ -151,12 +151,17 @@ static void sl_seg(const track_t *t, sl_t *s, int16_t *buf, int32_t *b, uint32_t
         } else if (s->w) {
             y -= mulq16(y, (uint32_t)s->w << 1);    /* (the repeat ended on a boundary: it is 0 there) */
         }
+        if (side) {
+            side[j] -= mulq16(side[j], (uint32_t)s->gc << 1);
+            /* The existing stutter recording is mono; fade live width with its dry mix. */
+            side[j] -= mulq16(side[j], (uint32_t)s->w << 1);
+        }
         b[j] = y;
     }
 }
 
 /* the step clock over n samples and the SLICER on b (0: the clock only, the track is silent) */
-static void slicer_track(const track_t *t, int32_t *b, uint32_t n)
+static void slicer_track_stereo(const track_t *t, int32_t *b, int32_t *side, uint32_t n)
 {
     uint32_t k = (uint32_t)(t - trk), i = 0;
     sl_t *s = &sl[k];
@@ -169,10 +174,15 @@ static void slicer_track(const track_t *t, int32_t *b, uint32_t n)
         if (m > n - i)
             m = n - i;
         if (act)
-            sl_seg(t, s, sl_buf[k], b + i, m);
+            sl_seg(t, s, sl_buf[k], b + i, side ? side + i : 0, m);
         s->pos += m;
         i += m;
     }
+}
+
+static void slicer_track(const track_t *t, int32_t *b, uint32_t n)
+{
+    slicer_track_stereo(t, b, 0, n);
 }
 
 /* a silent part must still be rendered: a repeat is playing or fading (fx.c mix_part) */

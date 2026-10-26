@@ -589,6 +589,7 @@ static void vg_finish(uint32_t mi)                   /* the hit rendered: its sp
 
 /* one frame's share of t's rendered hit (draw_graph, the engine view shown): a new sound starts it again; VG_STEP
  * samples at most; nothing once it is done */
+static uint32_t vg_share(uint32_t model) { return mmen_is_model(model) ? VG_STEP / 4u : VG_STEP; }
 static void vg_step(const track_t *t)
 {
     uint32_t mi = (uint32_t)t->p[P_MODEL] % NMODELS, sig, k, i;
@@ -607,7 +608,9 @@ static void vg_step(const track_t *t)
         vg.run = 1;
         vg_hit(t, VG_VEL);
     }
-    for (k = 0; vg.run && k < VG_STEP; k += CTL) {
+    /* The calibrated chain is heavier; spread its preview over more LCD frames. */
+    uint32_t share = vg_share(vg_trk.model);
+    for (k = 0; vg.run && k < share; k += CTL) {
         uint32_t on = vg_render(b, CTL), bi = vg.n / CTL;
         int32_t mn = 0, mx = 0, a;
         for (i = 0; i < CTL; i++) {

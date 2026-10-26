@@ -1,5 +1,13 @@
 /* Drum firmware UI checks on the host. */
 #include "ui_host.h"
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(undefined_behavior_sanitizer)
+#define UI_SANITIZED 1
+#endif
+#endif
+#ifndef UI_SANITIZED
+#define UI_SANITIZED 0
+#endif
 #define REC_ALLMASK ((1u << NTRK) - 1u)              /* every track armed (MNM-1: 6) */
 
 static int fails;
@@ -867,6 +875,9 @@ static void test_acid_cap(void)
     for (k = 0; k < 4u; k++)
         old_set_model(&trk[k], DM_ACID);
     project_save(0);
+    /* Manufacture an over-cap stored project; normal MODEL changes now refuse it. */
+    for (k = 0; k < 4u; k++) proj_slot[0].t[k].p[P_MODEL] = DM_ACID;
+    proj_slot[0].sum = proj_sum(&proj_slot[0]);
     project_load(0);
     for (k = 0, n = 0; k < NTRK; k++)
         n += trk[k].p[P_MODEL] == DM_ACID;
@@ -3145,8 +3156,6 @@ static void kit_session(void)
         "x.x.x...x.x.x...",   /* HATC */
         "......x.......x.",   /* HATO */
         ".............xxX",   /* TOM: fill */
-        "...x.......x....",   /* RIM (muted) */
-        "X...............",   /* CYMB */
     };
     uint32_t i, k;
     for (i = 0; i < NTRK; i++)
@@ -3507,7 +3516,8 @@ static void test_project_rejects(void)
 {
     ui_host_init();
     project_save(0);
-    proj_slot[0].t[3].p[P_MODEL] = 99;               /* corrupt the stored data, fix the checksum */
+    proj_slot[0].t[1].p[P_MODEL] = NMODELS + 17;      /* invalid model remains bounded */
+    proj_slot[0].t[3].p[P_MODEL] = DM_MMSAW;          /* legacy parameter laws */
     proj_slot[0].t[3].p[P_E1] = 30000;
     ((uint8_t *)&proj_slot[0].t[3].step[0])[0] = 0xC1u;   /* on + both reserved bits */
     proj_slot[0].t[3].step[1].cond = 200;
@@ -3524,10 +3534,10 @@ static void test_project_rejects(void)
     proj_slot[0].sum = proj_sum(&proj_slot[0]);
     project_load(0);
     check("project: out-of-range values are clamped on load",
-          trk[3].p[P_MODEL] < NMODELS && trk[3].p[P_E1] <= DMODELS[trk[3].p[P_MODEL]].edit[1].max &&
+          trk[1].p[P_MODEL] < NMODELS && trk[3].p[P_E1] <= DMODELS[trk[3].p[P_MODEL]].edit[1].max &&
               trk[3].step[0].on == 1 && trk[3].step[1].cond == COND_MAX && trk[3].step[1].rat == 3 &&
               trk[3].p[P_SRC] == 3 && song.g[G_GLEN1] == 1 &&
-              song.g[G_CSRC] == 8 && trk[3].p[P_DUCK] == 1 &&
+              song.g[G_CSRC] == GP[G_CSRC].max && trk[3].p[P_DUCK] == 1 &&
               trk[3].p[P_LFO1 + LF_DEST] == TP[P_LFO1 + LF_DEST].max && trk[3].p[P_LFO1 + LF_WAVE] == 0 &&
               trk[3].p[P_FWDTH] == 127 && trk[3].p[P_SRR] == 127 && trk[3].p[P_ARPM] == 0);
     proj_slot[1].magic = 0x46554E33u;                /* an old Felucca project ("FUN3") */
@@ -6594,6 +6604,10 @@ static void test_prio_sound_list(void)
                                                       * GATE, CHOKE PRIO) */
         old_set_model(TSEL, m);
         n = snd_list(TSEL, ids);
+        if (DMODELS[m].mm >= 2u) {
+            ok &= ids[n - 2u] == P_PTCH && ids[n - 1u] == P_WBNK;
+            n -= 2u;
+        }
         ok &= n <= 12u && ids[0] == P_MODEL && ids[2] == P_OUT && ids[n - 3u] == P_PRIO && ids[n - 4u] == P_CHOKE &&
               ids[n - 2u] == P_REV && ids[n - 1u] == P_CHOR && (!DMODELS[m].fx || (ids[3] == P_IN && ids[4] == P_FXG));
     }
@@ -6874,13 +6888,11 @@ static void test_list_save_delete_overwrite(void)
     preset_name_of(TSEL->pre, nb);
     check("list OCT- again: deleted; the track keeps its knobs and its reference (shown as -)",
           upr.s[3].used != 1u && TSEL->pre == u0 + 3u && TSEL->p[P_E1] == 20 && str_eq(nb, "-"));
-    turn(EN_K2, -1);
-    ui_frame();
-    check("list KNOB 2 left: the bank before, on its first (CLASSIC)", ui.pr.cur == kb);
+    do { turn(EN_K2, -1); ui_frame(); } while (preset_bank_of(ui.pr.cur) != PB_CLASSIC);
+    check("list KNOB 2 left through the added banks: CLASSIC's first", ui.pr.cur == kb);
     tap(B_SAVE);
     check("list SAVE off the user bank: the first free slot (2: 1 used, 4 deleted)", upr.s[1].used == 1u && TSEL->pre == u0 + 1u);
-    turn(EN_K2, -1);
-    ui_frame();
+    do { turn(EN_K2, -1); ui_frame(); } while (preset_bank_of(ui.pr.cur) != PB_CLASSIC);
     tap(B_OCTUP);
     check("list OCT+ (LOAD): the preset under the cursor on the track, the list closed",
           TSEL->pre == kb && voice_is(TSEL, kb) && !pl_on());
@@ -7075,7 +7087,7 @@ static void test_list_preview_scrub(void)
     ui_frame();
     check("list: the track's own key plays the auditioned sound (the track stays)", song.sel == 0u &&
           voice_is(TSEL, want) && voices_on(TSEL) == 1u && pl_on());
-    while (preset_bank_of(ui.pr.cur) != PB_CLASSIC) {         /* the last factory bank (fix 8) */
+    while (preset_bank_of(ui.pr.cur) != PB_ARCHIVE) {         /* the last factory bank */
         turn(EN_SELECT, 1);
         ui_frame();
     }
@@ -7510,7 +7522,9 @@ static void test_model_list_order(void)
 {
     static const char *const WANT[NMODELS] = {
         "SWSAW", "SWPLS", "SID", "FM+", "DPRO", "GND", "VO-6",
-        "THRU", "REVRB", "CHRS", "DYNMX", "RING", "PHASR", "FLANG",
+        "THRU", "REVRB", "CHRS", "DYNMX", "RING", "PHASR", "FLANG", "STRNG", "PIPE", "CHORD", "MODAL",
+        "G-SIN", "GPRC", "SID2", "FMST", "FMDYN", "SAW2", "ENS", "WAVE", "VOX2", "FMPAR",
+        "PUL2", "CHO2", "RING2", "DYN2", "NOISE", "DKICK", "DSNAR", "DHAT", "DCYMB",
         "BDTRX", "SDTRX", "TMTRX", "CGTRX", "CPTRX", "RSTRX", "CBTRX", "CHTRX", "OHTRX", "CYTRX", "SHTRX", "CLTRX",
         "B2TRX", "BDEFM", "SDEFM", "TMEFM", "CPEFM", "RSEFM", "CBEFM", "HHEFM", "CYEFM",
         "BOOM", "PUNCH", "SNAP", "CRACK", "METAL", "HISS", "SKIN", "FM", "ACID", "SAMPL",
@@ -7537,7 +7551,7 @@ static void test_model_list_order(void)
     check("models keep their numbers (projects store them): K808 0, ACID 23, BDTRX 24, CYEFM 44, SWSAW 45, VO-6 51, "
           "THRU 52, FLANG 58",
           DM_K808 == 0 && DM_ACID == 23 && DM_KTRX == 24 && DM_CYEFM == 44 && DM_MMSAW == 45 && DM_MMVO == 51 &&
-              DM_FXTHRU == 52 && DM_FXFLG == 58 && NMODELS == 59);
+              DM_FXTHRU == 52 && DM_FXFLG == 58 && NMODELS == 82);
 }
 
 /* the renamed engines (owner, fixes 9): the MODEL message, the engine view's title (DMODELS' name) and N_MODEL agree,
@@ -7595,8 +7609,8 @@ static int graph_has_text(const char *s)
 static void test_engine_number(void)
 {
     static const struct { uint8_t m; const char *s; } C[] = {
-        {DM_MMSAW, "#01/59"}, {DM_MMVO, "#07/59"}, {DM_FXFLG, "#14/59"}, {DM_KTRX, "#15/59"}, {DM_FM, "#43/59"},
-        {DM_ACID, "#44/59"}, {DM_K808, "#46/59"}, {DM_CLAVE, "#59/59"}};
+        {DM_MMSAW, "#01/82"}, {DM_MMVO, "#07/82"}, {DM_FXFLG, "#14/82"}, {DM_KTRX, "#38/82"}, {DM_FM, "#66/82"},
+        {DM_ACID, "#67/82"}, {DM_K808, "#69/82"}, {DM_CLAVE, "#82/82"}};
     uint32_t i, ok = 1, okall = 1;
     char want[12];
     ui_host_init();
@@ -7611,14 +7625,14 @@ static void test_engine_number(void)
             printf("      %s: no %s\n", N_MODEL[C[i].m], C[i].s);
         }
     }
-    check("engine view: SWSAW #01/59 (the first), VO-6 #07, FLANG #14, KTRX #15, FM #43, ACID #44, K808 #46, CLAVE #59/59 "
+    check("engine view: SWSAW #01/82 (the first), VO-6 #07, FLANG #14, KTRX #15, FM #43, ACID #44, K808 #46, CLAVE #82/82 "
           "(the last)", ok);
     old_set_model(TSEL, DM_K808);
     ui.force = 1;
     ui_frame();
     check("engine view: K808 (enum 0) is not #01 (the list's place, not the model's number)",
-          !graph_has_text("#01/59"));
-    check("engine view: the total is the MODEL list's length", sizeof MODEL_LIST / sizeof MODEL_LIST[0] == 59u);
+          !graph_has_text("#01/82"));
+    check("engine view: the total is the MODEL list's length", sizeof MODEL_LIST / sizeof MODEL_LIST[0] == 82u);
     for (i = 0; i < NMODELS; i++) {
         old_set_model(TSEL, MODEL_LIST[i]);
         TSEL->p[P_CHOKE] = 2;
@@ -7904,7 +7918,7 @@ static void test_vg_live_audio(void)
  * (host instructions; the FM-1 at ~6.86 ns each, docs/PERFORMANCE.md) */
 static void test_vg_budget(void)
 {
-    uint32_t f, w, maxw = 0, done = 0, blit_frames = 0, b, i, worst = 0;
+    uint32_t f, w, maxw = 0, done = 0, blit_frames = 0, b, i, worst = 0, frame_worst = 0;
     uint64_t i0, d, ins_max = 0, frame_max = 0;
     ui_host_init();
     song.sel = 0;
@@ -7935,6 +7949,7 @@ static void test_vg_budget(void)
     for (f = 0; f < 30u; f++)
         ui_frame();
     check("rendered hit: idle frames render nothing, redraw nothing", vg.work == w && host_graph_blits == b);
+    if (UI_SANITIZED) return;                       /* instruction budgets require an uninstrumented build */
     for (i = 0; i < NMODELS; i++) {
         uint32_t mi = MODEL_LIST[i], n;
         if (!vg_drawn(mi))
@@ -7948,17 +7963,20 @@ static void test_vg_budget(void)
         n = vg.work - w;
         printf("     %-5s %4u MS span, %6u samples, %8llu host instructions (%3llu a sample, ~%5.1f ms on the FM-1), "
                "%2u frames\n", N_MODEL[mi], (unsigned)vg.span, n, (unsigned long long)d,
-               (unsigned long long)(n ? d / n : 0), (double)d * 6.86e-6, (n + VG_STEP - 1u) / VG_STEP);
+               (unsigned long long)(n ? d / n : 0), (double)d * 6.86e-6, (n + vg_share(mi) - 1u) / vg_share(mi));
         if (d > ins_max) {
             ins_max = d;
             worst = mi;
         }
-        if (n && d * VG_STEP / n > frame_max)
-            frame_max = d * VG_STEP / n;
+        if (n && d * vg_share(mi) / n > frame_max) {
+            frame_max = d * vg_share(mi) / n;
+            frame_worst = mi;
+        }
     }
     printf("     rendered hit: the dearest hit %s %llu host instructions (~%.1f ms on the FM-1, over the frames); a "
            "frame's share at most ~%llu (~%.2f ms)\n", N_MODEL[worst], (unsigned long long)ins_max, (double)ins_max * 6.86e-6,
            (unsigned long long)frame_max, (double)frame_max * 6.86e-6);
+    printf("     frame budget worst model: %s\n", N_MODEL[frame_worst]);
     check("rendered hit: a frame's share of any model's render under 3 ms on the FM-1 (~437000 host instructions)",
           frame_max < 437000u);
 }

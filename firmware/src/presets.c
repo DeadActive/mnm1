@@ -1,21 +1,20 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Drum machine fork: 2026 DEADACTIVE */
-/* Presets (spec Hortator spec 2026-10-19-presets-design.md): a preset is a voice, MODEL + the 8 SOUND knobs
- * P_E0..P_E7, nothing else (not the FILTER, LFOs, sends, LEVEL, PAN, NOTE, CHOKE, steps). One id for every preset: the
- * factory banks in order (MNM, MD, MODERN, CLASSIC: const tables, preset_bank.h), then the 128 USER slots
- * (PRE_NFACT + slot). A track remembers the id it was loaded from (track_t.pre, PRE_NONE none) and whether a SOUND knob
- * moved since (pre_ed: preset_touch); projects store both (project.c, FDRD: the reference by a stable key, a factory
- * preset's uid or a user slot, preset_rec_enc, never the positional id). The user bank lives in RAM here; its flash
- * record ("UPR1" in OBJ_UPRESET0 + 1, MIDI LEARN's map keeps OBJ_UPRESET0) is project.c's: preset_user_save /
- * preset_user_delete (written at once when stopped, at the next STOP while playing: preset_user_tick), preset_user_boot.
- * Included after dmodels.c (the model table) and before drum_core.c (drum_set_model: a voice's first preset). */
+/* Legacy presets contain MODEL and eight SOUND knobs. SOURCE/ARCHIVE factory
+ * sounds contain all 71 mapped controls; pattern, mute, note and routing stay put.
+ * Stable factory UIDs and user-slot references survive bank additions in projects.
+ * UPR1 keeps 128 eight-knob user slots; full sounds require a separate store.
+ * Included after dmodels.c and before params.c/drum_core.c. */
 typedef struct { uint8_t model; int8_t k[8]; char name[9]; } preset_t;
 #define PRE_NONE 0xFFFFu                                /* no preset (track_t.pre) */
 #define PRE_NUSER 128u                                  /* user slots */
-enum { PB_MNM, PB_MD, PB_MODERN, PB_CLASSIC, PB_USER, PB_N };   /* (the order shown; MODERN before CLASSIC since fix 8: a
+enum { PB_MNM, PB_MD, PB_MODERN, PB_CLASSIC, PB_SOURCE, PB_ARCHIVE, PB_USER, PB_N };   /* (the order shown; MODERN before CLASSIC since fix 8: a
                                                           * project's reference is a uid, never an id or a bank) */
-static const char *const N_PBANK[PB_N] = {"MNM", "MD", "MODERN", "CLASSIC", "USER"};
+static const char *const N_PBANK[PB_N] = {"MNM", "MD", "MODERN", "CLASSIC", "SOURCE", "ARCHIVE", "USER"};
+#include "mm_controls.h"
+#include "mm_sound_bank.h"
 #include "preset_bank.h"
+#define PRE_FULL_FIRST 210u
 #define PRE_NID (PRE_NFACT + PRE_NUSER)                 /* ids 0 .. PRE_NID - 1 */
 #define ACID_MAXTRK 2u                                  /* ACID is the model of 2 tracks at most (CPU), by user decision */
 
@@ -27,6 +26,12 @@ typedef char pre_id_fits[PRE_NID < PRE_NONE ? 1 : -1];
 #define UPR_MAGIC 0x31525055u                           /* "UPR1" */
 static upr_rec_t upr;
 static uint8_t upr_pending;                             /* changed while playing: written at the next STOP */
+
+static void mmen_legacy_defaults(track_t *t);            /* params.c */
+static int preset_calibrated(uint32_t model)
+{
+    return model >= MM_MODEL_FIRST && model < MM_MODEL_FIRST + MM2_COUNT;
+}
 
 static void drum_cut(track_t *t);                       /* drum_core.c */
 static uint32_t acid_tracks(const track_t *except);
@@ -137,29 +142,49 @@ static uint32_t preset_first_of(uint32_t model)        /* the voice's first fact
 }
 
 /* id is a preset t may load: not empty, not a third ACID track */
+static const char *model_refused(const track_t *t, uint32_t model)
+{
+    if (model >= NMODELS)
+        return "INVALID MODEL";
+    if (model == DM_ACID && acid_tracks(t) >= ACID_MAXTRK)
+        return "ACID: 2 TRACKS MAX";
+    return fxres_refused(t, DMODELS[model].render);
+}
 static int preset_ok(const track_t *t, uint32_t id, preset_t *p)
 {
-    return preset_get(id, p) && !(p->model == DM_ACID && acid_tracks(t) >= ACID_MAXTRK);
+    return preset_get(id, p) && !model_refused(t, p->model);
 }
 
-/* the voice of p on t: MODEL and the knobs (inside the model's ranges), the reference id, not edited. Another voice
- * cuts the old one first (as a MODEL change); the same voice is a knob turn */
+/* Apply the voice and, for SOURCE/ARCHIVE, its complete mapped sound. Another
+ * machine cuts the old voice; same-machine loads preserve the running voice. */
 static void preset_apply(track_t *t, const preset_t *p, uint32_t id)
 {
     const dmodel_t *m = &DMODELS[p->model % NMODELS];
     uint32_t i;
-    if ((uint32_t)t->p[P_MODEL] != p->model || t->model != p->model)
+    if ((uint32_t)t->p[P_MODEL] != p->model || t->model != p->model) {
         drum_cut(t);
+        mmen_ready[mmen_index(t)] = 0;
+        if (mmen_index(t) < NTRK) fxs[mmen_index(t)].model = 255;
+    }
+    if (preset_calibrated((uint32_t)t->p[P_MODEL]) && !preset_calibrated(p->model))
+        mmen_legacy_defaults(t);
     t->p[P_MODEL] = (int16_t)(p->model % NMODELS);
     t->model = (uint8_t)t->p[P_MODEL];
     for (i = 0; i < 8u; i++)
         t->p[P_E0 + i] = (int16_t)clamp(p->k[i], m->edit[i].min, m->edit[i].max);
+    if (id >= PRE_FULL_FIRST && id - PRE_FULL_FIRST < MM_SOUND_COUNT) {
+        const mm_sound_t *sound = &MM_SOUNDS[id - PRE_FULL_FIRST];
+        uint8_t raw[MM_CONTROL_COUNT];
+        memcpy(raw, sound->raw, sizeof raw);
+        mm_controls_remap(raw, sound->source_track, (uint32_t)(t - trk));
+        mm_controls_set(t, raw);
+    }
     t->pre = (uint16_t)id;
     t->pre_ed = 0;
 }
 
-/* load preset id onto t (the main loop: the audio IRQ off meanwhile, motion's base follows, as a MODEL change; CHOKE
- * and everything but the voice untouched): 0, or -1 refused (an empty slot, a bad id, ACID on ACID_MAXTRK others) */
+/* Load with the audio IRQ off and update motion's base. Return -1 for an empty
+ * slot, invalid ID or machine-cap refusal; pattern and routing stay untouched. */
 static int preset_load(track_t *t, uint32_t id)
 {
     preset_t p;
@@ -179,12 +204,30 @@ static void preset_put(track_t *t, uint32_t model, const int16_t *k, uint32_t pr
 {
     uint32_t i;
     fm1_irq_off();
-    if ((uint32_t)t->p[P_MODEL] != model || t->model != model)
+    if ((uint32_t)t->p[P_MODEL] != model || t->model != model) {
         drum_cut(t);
+        mmen_ready[mmen_index(t)] = 0;
+        if (mmen_index(t) < NTRK) fxs[mmen_index(t)].model = 255;
+    }
     t->p[P_MODEL] = (int16_t)(model % NMODELS);
     t->model = (uint8_t)t->p[P_MODEL];
     for (i = 0; i < 8u; i++)
         t->p[P_E0 + i] = k[i];
+    t->pre = (uint16_t)pre;
+    t->pre_ed = (uint8_t)ed;
+    motion_rebase((uint32_t)(t - trk));
+    fm1_irq_on();
+}
+
+/* Full sound auditions also change AMP/FILTER/LFO/effect controls. Keep the old
+ * eight-knob restore API for its callers; the list restores its complete snapshot. */
+static void preset_put_full(track_t *t, const int16_t *p, uint32_t pre, uint32_t ed)
+{
+    fm1_irq_off();
+    if (t->p[P_MODEL] != p[P_MODEL] || t->model != (uint32_t)p[P_MODEL])
+        drum_cut(t);
+    memcpy(t->p, p, sizeof t->p);
+    t->model = (uint8_t)t->p[P_MODEL];
     t->pre = (uint16_t)pre;
     t->pre_ed = (uint8_t)ed;
     motion_rebase((uint32_t)(t - trk));

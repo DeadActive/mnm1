@@ -6,24 +6,29 @@ the order is the current plan.
 Legend: **[next]** being worked on next, **[planned]** wanted and feasible, **[maybe]** possible but costly on the
 FM-1, **[no]** not possible on this hardware.
 
-## 1. Deeper machines [next]
+## 1. Deeper machines [in progress]
+
+0.7.0 ports 19 calibrated machines and the complete audio chain, 120 full factory sounds, source LFO/ARP laws,
+96 wave cycles (32 generated plus 64 owner-authored), restored resonator FX and additional bus effects.
+Legacy models remain separate. The source's missing VOX consonants remain planned. See [PORT_PLAN.md](PORT_PLAN.md)
+for the evidence, compatibility approach and approved expanded-storage layout.
 
 The families are there (GND, SWAVE, SID, DPRO, FM+, VO and the 7 FX machines). Each gets a fuller set of knobs and
 variants:
 
 - **SWAVE-SAW, SWAVE-PULSE:** unison level and width, an extended unison pair, square and sine subs; PW with an
-  automatic sweep and its restart. [next]
+  automatic sweep and its restart. [implemented: SAW2/PUL2 in 0.7.0]
 - **SWAVE-ENS:** chords of up to 4 notes from one track (three pitch offsets, wave, PW, chorus level and width).
-  [planned]
+  [implemented: ENS in 0.7.0]
 - **SID:** PW sweep and restart, MOD (RING, SYNC, both), and a modulation source that can be the previous track's
-  pitch. [next]
+  pitch. [implemented: SID2 in 0.7.0]
 - **DPRO-WAVE:** 32 single-cycle waves with a morph, its sweep and restart, and sync (own frequency or the previous
-  track's pitch). [planned]
+  track's pitch). [implemented: WAVE in 0.7.0]
 - **DPRO-BBOX:** 24 percussion sounds across two octaves, START, RTRG, RTIM. [maybe: sample memory]
 - **DPRO-DDRW, DPRO-DENS:** double wave and ensemble. [maybe]
-- **FM+STAT, FM+PAR, FM+DYN:** three FM machines instead of one. [planned]
+- **FM+STAT, FM+PAR, FM+DYN:** three FM machines alongside the legacy model. [implemented: FMST/FMPAR/FMDYN in 0.7.0]
 - **VO-6:** consonants (CONS, CLEN, CVOL) and a two-formant vowel space. [planned]
-- **GND-GND, GND-SIN, GND-NOIS:** three separate machines (NOIS with stereo width and colour). [planned]
+- **GND-GND, GND-SIN, GND-NOIS:** sine and noise with stereo width and colour. [implemented: G-SIN/NOISE in 0.7.0; silence remains a muted track]
 - **FX:** stereo WID on CHORUS, PHASER and FLANGER. [planned]
 
 ## 2. Sequencer
@@ -56,7 +61,7 @@ variants:
 ## 5. Sound and signal path
 
 - **24 dB filter slopes** (the filter's stages are 12 dB now, to fit the CPU budget). [maybe]
-- **DIST inside the filter**, setting the filter's and EQ's headroom (now a separate insert). [planned]
+- **DIST inside the filter**, setting the filter's and EQ's headroom. [implemented for calibrated models: 0.7.0]
 - **Longer delays at full quality** (each track's tape loop has 4096 cells per channel; above ~93 ms it gets grainy).
   [maybe: RAM]
 - **External audio inputs for FX machines.** [no: the FM-1 has no audio input]
@@ -70,7 +75,7 @@ PERFORM and the COMP sidechain compressor (HOME, then SELECT to COMP).
 Taken out to make room, and could come back as MNM-1 machines:
 
 - **RESON** (string, pipe, chord and modal resonators) as an FX machine, FX-RESON, on a track fed by NEIB or a bus.
-  [maybe: RAM]
+  [implemented: STRNG/PIPE/CHORD/MODAL in 0.7.0]
 - **Grids** (Mutable Instruments' pattern generator) as a trig source for any track. [planned]
 
 ## 7. Look and feel

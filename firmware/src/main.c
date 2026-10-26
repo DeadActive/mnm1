@@ -129,6 +129,14 @@ static void fm1_main(void)
     fm1_adc_init();
     panel_init();
     felucca_init();
+#if FELUCCA_DUAL_CORE
+    fm1_multicore_start();
+    if (audio_worker_online) {
+        cal_parallel_begin=audio_worker_submit;
+        cal_parallel_end=audio_worker_join;
+    }
+    fm1_guard_enable(FM1_GUARD_PC);
+#endif
     audio_init();
     usb_start();
 #if FELUCCA_UART
@@ -245,6 +253,7 @@ void fm1_cstart(void)
     src = fm1_boot.rst_src;
     wdt = fm1_boot.wdt_con;
     fm1_wdt_arm(0x0D);
+    fm1_core1_stop();
     if (bootguard.magic != BOOTGUARD_MAGIC) {
         bootguard.magic = BOOTGUARD_MAGIC;
         bootguard.failed = 0;
@@ -268,7 +277,11 @@ void fm1_cstart(void)
     for (s = _rt_load, d = _rt_start; d < _rt_end; s++, d++)
         *d = *s;                                /* flash driver code that must run from RAM */
     fm1_mailbox_clear();
-    fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS | FM1_GUARD_PC);
+    fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS
+#if !FELUCCA_DUAL_CORE
+                     | FM1_GUARD_PC
+#endif
+                     );
     fm1_boot.p3_rst = (uint8_t)p3;
     fm1_boot.rst_src = src;
     fm1_boot.wdt_con = (uint8_t)wdt;

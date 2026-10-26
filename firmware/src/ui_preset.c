@@ -25,7 +25,7 @@
 #define PL_ROWS 7u                                      /* the list's rows */
 #define PL_RH 20                                        /* .. their height */
 #define PL_HALF 4u                                      /* .. drawn 4 at a time (cv_begin's CV_MAX: 6 rows) */
-static const char *const PB_TAB[PB_N] = {"MNM", "MD", "MODERN", "CLASSIC", "USER"};
+static const char *const PB_TAB[PB_N] = {"MNM", "MD", "MOD", "CLS", "SRC", "ARC", "USER"};
 
 static int pp_on(void) { return ui.pr.pop; }
 static int pl_on(void) { return ui.pr.lst; }
@@ -67,7 +67,7 @@ static void pl_restore(void)
     if (!ui.pr.pv)
         return;
     ui.pr.pv = 0;
-    preset_put(&trk[ui.pr.pv_trk % NTRK], ui.pr.sv_model, ui.pr.sv_k, ui.pr.sv_pre, ui.pr.sv_ed);
+    preset_put_full(&trk[ui.pr.pv_trk % NTRK], ui.pr.sv_k, ui.pr.sv_pre, ui.pr.sv_ed);
 }
 
 /* the preset under the cursor on the selected track for now: MODEL and the 8 knobs as a load (presets.c preset_apply:
@@ -83,7 +83,7 @@ static void pl_audition(uint32_t hit, uint32_t key)
     if (ui.pr.pv && ui.pr.pv_trk != k)
         pl_restore();                                  /* (the track changed elsewhere) */
     if (!preset_ok(t, ui.pr.cur, &p)) {
-        ui_message(!preset_get(ui.pr.cur, &p) ? "EMPTY SLOT" : "ACID: 2 TRACKS MAX");
+        ui_message(!preset_get(ui.pr.cur, &p) ? "EMPTY SLOT" : model_refused(t, p.model));
         return;
     }
     fm1_irq_off();
@@ -91,8 +91,8 @@ static void pl_audition(uint32_t hit, uint32_t key)
         ui.pr.pv = 1;
         ui.pr.pv_trk = (uint8_t)k;
         ui.pr.sv_model = (uint8_t)t->p[P_MODEL];
-        for (i = 0; i < 8u; i++)
-            ui.pr.sv_k[i] = (mo.base_ok >> k) & 1u ? mo.base[k][P_E0 + i] : t->p[P_E0 + i];
+        for (i = 0; i < P_COUNT; i++)
+            ui.pr.sv_k[i] = (mo.base_ok >> k) & 1u ? mo.base[k][i] : t->p[i];
         ui.pr.sv_pre = t->pre;
         ui.pr.sv_ed = t->pre_ed;
     }
@@ -219,7 +219,7 @@ static void pl_load(void)
     if (ui.pr.pv && ui.pr.pv_trk != song.sel)
         pl_restore();
     if (preset_load(TSEL, ui.pr.cur) < 0) {
-        ui_message(!preset_get(ui.pr.cur, &p) ? "EMPTY SLOT" : "ACID: 2 TRACKS MAX");
+        ui_message(!preset_get(ui.pr.cur, &p) ? "EMPTY SLOT" : model_refused(TSEL, p.model));
         return;
     }
     ui.pr.pv = 0;
@@ -234,6 +234,11 @@ static void pl_save(void)
 {
     uint32_t slot;
     char nb[9];
+    if (preset_calibrated(ui.pr.pv ? ui.pr.sv_model : (uint32_t)TSEL->p[P_MODEL])) {
+        ui.pr.arm = 0;
+        ui_message("FULL SOUND STORE NEEDED");
+        return;
+    }
     if (preset_bank_of(ui.pr.cur) == PB_USER) {
         slot = ui.pr.cur - PRE_NFACT;
         if (upr.s[slot].used == 1u && !pl_armed(1u)) {
@@ -456,7 +461,7 @@ static void draw_plist(void)
         md_text(234 - md_text_w(&MD_F3, 2, b), 3, &MD_F3, 2, b, C_BG);
     }
     for (i = 0, x = 3; i < PB_N; i++) {                /* the cursor's bank a solid tab, the others outlined (MNM-1:
-                                                        * five banks, narrower tabs to fit 240) */
+                                                        * seven banks, compact tabs to fit 240) */
         int32_t w = md_text_w(&MD_F3, 2, PB_TAB[i]) + 6;
         cv_button(x, 23, w, PB_TAB[i], i == bank, C_INK, C_BG);
         x += w + 3;

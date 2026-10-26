@@ -109,10 +109,77 @@ static void test_runner(void)
     check("bench run: start line, every case in order (set up while the ISR holds), done, then the power-on state", ok);
 }
 
+static void test_calibrated_stress(void)
+{
+    static const uint8_t models[4] = {DM_M2_GSIN, DM_M2_ENS, DM_M2_GNOI, DM_M2_VOX};
+    static const char *const names[4] = {"cal-gsin6-full", "cal-ens6-full", "cal-noise6-full", "cal-vox2-6-full"};
+    static const uint8_t expected_template[71] = {
+        127,127,127,127,127,127,127,127,
+        0,127,127,0,127,64,64,0,
+        0,127,0,0,0,32,64,64,
+        64,127,127,16,127,63,0,127,
+        127,127,127,127,64,100,0,64,0,14,
+        0,17,27,0,127,127,0,96,
+        0,18,27,0,127,127,0,96,
+        0,26,27,0,127,127,0,96,
+        0,127,127,127,0
+    };
+    unsigned ok = NTRK == 6 && BENCH_CAL == BENCH_MORE + 8u && BENCH_N == BENCH_CAL + 4u;
+    for (unsigned c = 0; c < 4; ++c) {
+        char name[32];
+        host_init_live();bench_setup(BENCH_CAL + c);bench_name(BENCH_CAL + c, name);
+        ok &= !strcmp(name, names[c]);
+        ok &= song.g[G_BPM] == 120 && !song.playing && !transport_req && !song.g[G_CSRC];
+        ok &= song.g[G_TAPE] == 127 && song.g[G_ADPC] == 127 && song.g[G_HISS] == 127 &&
+              song.g[G_DRIVE] == 127 && song.g[G_RTYPE] == 2;
+        for (unsigned pass = 0; pass < 2; ++pass) {
+            unsigned active = 0;
+            for (unsigned k = 0; k < NTRK; ++k) {
+                track_t *t = &trk[k];uint8_t raw[71];
+                mm_controls_get(t, raw);
+                uint8_t expected[71];memcpy(expected, expected_template, sizeof expected);
+                expected[42] = expected[50] = expected[58] = mm_control_track(k);
+                ok &= !memcmp(raw, expected, sizeof raw);
+                ok &= t->model == models[c] && t->p[P_MODEL] == models[c];
+                active += !!t->v[0].active;
+                ok &= t->gate_n == GATE_HELD && mmen_state[k].gate && t->p[P_FXG] == 1;
+                ok &= !t->p[P_CHOR] && !t->p[P_REV] && !t->p[P_SLCR] && !t->p[P_MUTE] && t->p[P_OUT] == BUS_AB;
+                for (unsigned i = 0; i < 8; ++i) ok &= raw[i] == 127;
+                ok &= !raw[MMA_ATK] && !raw[MMA_REL] && raw[MMA_HOLD] == 127 && raw[MMA_DEC] == 127;
+                ok &= raw[MMA_EQG] == 127 && raw[MMA_DIST] == 127 && raw[MMA_SRR] == 127 && raw[MMA_BITS] == 127;
+                ok &= raw[MMA_FOLD] == 127 && raw[MMA_XOR] == 127 && raw[MMA_MODM] == 127 &&
+                      raw[MMA_MODD] == 127 && raw[MMA_MODR] == 127 && !raw[MMA_MODT];
+                ok &= raw[MMA_DSND] == 127 && raw[MMA_SPU] == 127 && raw[MMA_DFB] == 63 && raw[MMA_DTIM] == 16;
+                for (unsigned l = 0; l < 3; ++l) {
+                    unsigned q = MMA_LFO + 8 * l;
+                    ok &= raw[q] == mm_control_track(k) &&
+                          raw[q + 1] == 1 + (l == 0 ? MMA_BASE : l == 1 ? MMA_WDTH : MMA_EQG);
+                    ok &= raw[q + 2] == 27 && !raw[q + 3] && raw[q + 4] == 127 && raw[q + 5] == 127 &&
+                          !raw[q + 6] && raw[q + 7] == 96;
+                }
+            }
+            ok &= active == 6; /* no hidden voice-cap reduction before or after warmup */
+            if (!pass) render_mix(0, 0, SECS(0.5));
+        }
+        /* Reset reproducibility for the appended workloads, without rerunning
+         * every historical case in the optional bounded stress-only invocation. */
+        int32_t pa, pb;
+        uint32_t a = render_hash(SECS(0.1), &pa);
+        bench_reset();bench_setup(BENCH_CAL + c);render_mix(0, 0, SECS(0.5));
+        uint32_t b = render_hash(SECS(0.1), &pb);
+        ok &= a == b && pa > 0 && pa == pb;
+    }
+    check("bench: four appended calibrated full-chain cases keep all six voices and exact raw settings", ok);
+}
+
 int main(int argc, char **argv)
 {
     uint32_t c, d, ok = 1;
     char a[32], b[32];
+    if (argc > 1 && !strcmp(argv[1], "stress")) {
+        test_calibrated_stress();
+        return fails ? 1 : 0;
+    }
     if (argc > 1 && !strcmp(argv[1], "measure")) {
         for (c = 0; c < BENCH_N; c++) {
             double best = 1e18, x;
@@ -138,7 +205,7 @@ int main(int argc, char **argv)
     {
         static const char *const WANT[8] = {"heavy+filter", "heavy+comp", "heavy-fx+comp", "heavy+sidechain",
                                             "heavy-fx+sidechain", "heavy+2acid", "mnm-kit", "mnm-kit+dual"};
-        uint32_t w, okn = BENCH_N == BENCH_MORE + 8u;   /* (MNM-1: + its kit, without and with DUAL) */
+        uint32_t w, okn = BENCH_CAL == BENCH_MORE + 8u && BENCH_N == BENCH_CAL + 4u;   /* (MNM-1: + its kit, without and with DUAL) */
         for (w = 0; w < 8u && okn; w++) {
             bench_name(BENCH_MORE + w, a);
             okn &= !strcmp(a, WANT[w]);
@@ -158,6 +225,7 @@ int main(int argc, char **argv)
         okn &= trk[5].p[P_FCUT] == 30 && trk[5].p[P_FRESO] == 60;
         check("bench: the filter, compressor and sidechain cases", okn);
     }
+    test_calibrated_stress();
     ok = 1;
     for (c = 0; c < BENCH_N; c++) {                  /* the FM-1's reset = host_init_live (live defaults) */
         int32_t pa, pb;

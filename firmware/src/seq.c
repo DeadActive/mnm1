@@ -140,6 +140,8 @@ static const step_t *seq_steps(const track_t *t);   /* song.c: a song's row, els
 /* ACID's GATE knob: 10..100 % of len (samples); a synth machine's LEN (the AMP page): 1..127 of 128 */
 static uint32_t acid_gate_len(const track_t *t, uint32_t len)
 {
+    if (trk_model(t)->mm >= 2u)
+        return (len / 16u * (uint32_t)clamp(t->p[P_NLEN], 1, 127) / 16u + 1u) * 16u;
     if (trk_model(t)->mm)
         return len / 128u * (uint32_t)clamp(t->p[P_NLEN], 1, 127);
     return len / 100u * (10u + (uint32_t)clamp(t->p[P_E0 + 7], 0, 127) * 90u / 127u);
@@ -309,6 +311,11 @@ static void input_hit(track_t *t, uint32_t vel)
  * the key's note is being written, last the step it wrote last, first the step its phrase started on (the TIEs stop
  * there: a note held longer than LEN does not erase itself) */
 static struct { uint8_t key, trk, rec, last, first; } kz;
+static void mmarp_held_on(track_t *t, unsigned note);
+static void mmarp_held_off(track_t *t, unsigned note);
+static void mmarp_reset(void);
+static uint8_t mmarp_nheld[NTRK];
+static uint8_t calibrated_key_owner[27], calibrated_key_note[27];
 
 static int32_t keys_nt(uint32_t key) { return (int32_t)key - 7 + 12 * song.octave; }   /* NOTE - 60 */
 
@@ -317,7 +324,8 @@ static int32_t keys_nt(uint32_t key) { return (int32_t)key - 7 + 12 * song.octav
 static __attribute__((noinline)) void keys_off(void)
 {
     track_t *t = &trk[kz.trk % NTRK];
-    if (DMODELS[t->model % NMODELS].gate && t->gate_n == 0u)
+    if (DMODELS[t->model % NMODELS].gate && t->gate_n == 0u &&
+        !(mmen_is_model(t->model) && mmarp_nheld[kz.trk % NTRK]))
         acid_gate_off(t);
     kz.key = 0;
     kz.rec = 0;
@@ -381,6 +389,11 @@ static __attribute__((noinline)) void keys_on(uint32_t key)
     int legato = kz.key && kz.trk == song.sel;
     if (kz.key && !legato)
         keys_off();                                    /* mono over the keys: another track's held note ends */
+    if (m->mm >= 2u) {
+        mmarp_held_on(t, (unsigned)(nt + 60));
+        calibrated_key_owner[key] = (uint8_t)(song.sel + 1u);
+        calibrated_key_note[key] = (uint8_t)(nt + 60);
+    }
     if (((song.rec >> song.sel) & 1u) && song.playing && !t->p[P_SRC])
         keys_rec(t, nt, legato);                       /* live record (spec §6) */
     else
@@ -439,6 +452,13 @@ static void keyboard_block(void)
             ch &= ~bit;
         }
     }
+    for (key = 0; key < 27u; key++)
+        if (calibrated_key_owner[key] && ((ch & ~cur) >> key & 1u)) {
+            track_t *t = &trk[calibrated_key_owner[key] - 1u];
+            mmarp_held_off(t, calibrated_key_note[key]);
+            calibrated_key_owner[key] = 0;
+            if (!mmarp_nheld[t - trk] && !t->gate_n) acid_gate_off(t);
+        }
     if (kz.key && ((ch >> (kz.key - 1u)) & 1u) && !((cur >> (kz.key - 1u)) & 1u))
         keys_off();                                 /* KEYS: the sounding key let go, whoever has the keys now */
     if (kz.rec)
@@ -509,6 +529,18 @@ static void midi_block(void)
         }
         if ((st == 0x90u || st == 0x80u) && learn_note(d1, st == 0x90u && d2))
             continue;                               /* a learned note (any channel): its action, no drum */
+        if ((st == 0x90u || st == 0x80u) && ch < NTRK && mmen_is_model(trk[ch].model)) {
+            track_t *t = &trk[ch];
+            if (st == 0x90u && d2) {
+                mmarp_held_on(t, d1);
+                drum_play(t, d2, (int32_t)d1 - 60);
+                t->gate_n = 0;
+            } else {
+                mmarp_held_off(t, d1);
+                if (!mmarp_nheld[ch] && !t->gate_n) acid_gate_off(t);
+            }
+            continue;
+        }
         if (st != 0x90u || !d2 || ch != drum_ch())
             continue;                               /* note-offs: one-shots ignore them */
         for (i = 0; i < NTRK; i++)
@@ -563,9 +595,12 @@ static void seq_tick(track_t *t, uint32_t n)
 {
     uint32_t div = (uint32_t)t->p[P_SDIV], len = (uint32_t)t->p[P_SLEN];
     if (t->gate_n && t->gate_n != GATE_HELD) {        /* ACID: the gate closes this block (stopped too: a hit's) */
-        if (t->gate_n <= n)
-            acid_gate_off(t);
-        else
+        if (t->gate_n <= n) {
+            if (trk_model(t)->mm >= 2u) {
+                t->gate_n = 0;
+                mmen_gate(t, &t->v[0], 2);
+            } else acid_gate_off(t);
+        } else
             t->gate_n -= n;
     }
     arp_tick(t, n);                                 /* ARP: its notes while the note is held (stopped too) */

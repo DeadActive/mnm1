@@ -4,6 +4,9 @@ set -e
 cd "$(dirname "$0")/.."
 PY="${PYTHON:-python3}"
 "$PY" tools/build.py --gen-only >/dev/null
+"$PY" tools/gen_mono2k_presets.py --check --self-test
+"$PY" -m unittest discover -s tests -p test_mul64_check.py
+"$PY" -m unittest discover -s tests -p test_audio_worker_check.py
 "$PY" tools/gen_presets.py --check                 # firmware/src/preset_bank.h = tools/presets.json
 OUT=build/host
 mkdir -p "$OUT"
@@ -55,6 +58,37 @@ cc -O1 -g -fsanitize=signed-integer-overflow -fno-sanitize-recover=all -Wall -Wn
 "$OUT/acid_test"
 cc -O1 -g -fsanitize=signed-integer-overflow -fno-sanitize-recover=all -Wall -Wno-unused-function -Wno-int-to-pointer-cast -Wno-macro-redefined -Ibuild/gen -Ifirmware/src -o "$OUT/mnm_test" tests/mnm_test.c -lm   # (MNM-1: the synth machines, AMP, ARP, DUAL, SRR; UBSan)
 "$OUT/mnm_test" build/mnm_renders
+cc -O1 -g -fsanitize=address,undefined -fno-sanitize=shift-base -fno-sanitize-recover=all -Wno-int-to-pointer-cast -Wno-macro-redefined -Ibuild/gen -Ifirmware/src -o "$OUT/reson_machine_test" tests/reson_machine_test.c -lm
+"$OUT/reson_machine_test"
+cc -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -o "$OUT/calibrated_test" tests/calibrated_test.c -lm
+"$OUT/calibrated_test"
+cc -std=c11 -O1 -g -pthread -fsanitize=address,undefined -fno-sanitize-recover=all tests/audio_worker_test.c -o "$OUT/audio_worker_test"
+"$OUT/audio_worker_test"
+cc -O1 -g -pthread -fsanitize=address,undefined -fno-sanitize=shift-base -fno-sanitize-recover=all -Wno-int-to-pointer-cast -Wno-macro-redefined -Ibuild/gen -Ifirmware/src tests/calibrated_parallel_test.c -o "$OUT/calibrated_parallel_test" -lm
+"$OUT/calibrated_parallel_test"
+for test in delay_port controls_port engine_port lfo_port lfo_integration; do
+    cc -O2 -Wall -Wno-unused-function -fsanitize=address,undefined -fno-sanitize-recover=all "tests/${test}_test.c" -o "$OUT/${test}_test" -lm
+    "$OUT/${test}_test"
+done
+for test in project_migration fullpreset busfx_integration calibrated_mix live_calibrated format_port; do
+    cc -O1 -g -fsanitize=address,undefined -fno-sanitize=shift-base -fno-sanitize-recover=all -Wno-int-to-pointer-cast -Wno-macro-redefined -Ibuild/gen -Ifirmware/src "tests/${test}_test.c" -o "$OUT/${test}_test" -lm
+    "$OUT/${test}_test"
+done
+cc -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all tests/mm_store_test.c -o "$OUT/mm_store_test"
+# Full record conversion and transactional library migration, through the host UI/core.
+for test in mm_records mm_library; do
+    cc -O1 -g -Wall -Werror -Wno-unused-function -Wno-unused-variable -Wno-int-to-pointer-cast -Wno-macro-redefined -Wno-misleading-indentation -fsanitize=address,undefined -fno-sanitize-recover=all -Ibuild/gen -Ifirmware/src "tests/${test}_test.c" -o "$OUT/${test}_test" -lm
+    "$OUT/${test}_test"
+done
+"$OUT/mm_store_test"
+if [ -f ../mono2k/firmware/src/m2k_core.c ]; then
+    for test in machines_port adapter busfx_port; do
+        cc -O2 -Wno-unused-function -DMM2_MUL_OUT -fsanitize=address,undefined -fno-sanitize-recover=all -I../mono2k/firmware/src -I../mono2k/firmware/gen "tests/${test}_test.c" -o "$OUT/${test}_test" -lm
+        "$OUT/${test}_test"
+    done
+else
+    echo "source differential tests skipped: sibling mono2k checkout unavailable"
+fi
 cc -O2 -Wall -Wno-unused-function -Wno-int-to-pointer-cast -Wno-macro-redefined -Ibuild/gen -Ifirmware/src -o "$OUT/bench_host" tests/bench_host.c -lm
 "$OUT/bench_host"
 cc -O2 -Wall -Wno-unused-function -Wno-int-to-pointer-cast -Wno-macro-redefined -DDM_QCHECK -Ibuild/gen -Ifirmware/src -o "$OUT/drum_test_q" tests/drum_test.c -lm

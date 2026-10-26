@@ -18,6 +18,7 @@ reference to it then reads as no preset). Only the order in the JSON (the banks,
 import json
 import re
 import sys
+from gen_mono2k_presets import validate as full_sounds, MACHINES
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,7 +69,21 @@ def header(banks):
             uid.append(u)
             out.append(f"    {{DM_{mo}, {{{', '.join(str(v) for v in k)}}}, \"{nm}\"}},")
             n += 1
+    legacy_count = n
+    rows = full_sounds(json.loads((ROOT / "tests/mono2k_sounds.json").read_text()))
+    for index, (u, source_id, nm, machine, category, track, raw) in enumerate(rows):
+        if index in (0, 24):
+            start.append(n)
+        if u in uids:
+            raise SystemExit(f"gen_presets: duplicate full-sound uid {u}")
+        uids.add(u)
+        uid.append(u)
+        model = "M2_" + MACHINES[machine][2:]
+        out.append(f'    {{DM_{model}, {{{", ".join(map(str, raw[:8]))}}}, "{nm}"}},')
+        n += 1
+    out.append(f"/* Full sounds start at {legacy_count}; their complete values are in mm_sound_bank.h. */")
     out += ["};",
+            f"#define PRE_LEGACY_NFACT {legacy_count}u",
             "#define PRE_NFACT ((uint32_t)(sizeof PRE_FACTORY / sizeof PRE_FACTORY[0]))",
             f"typedef char pre_nfact_is[PRE_NFACT == {n}u ? 1 : -1];",
             "/* each factory preset's uid (the same order): a project's reference (append-only: never reused) */",

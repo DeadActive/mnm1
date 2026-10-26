@@ -63,7 +63,7 @@ static const char *name_of(uint32_t id)
 }
 
 /* the banks (plan 2026-10-19-presets Task 5, tools/presets.json -> preset_bank.h): every voice's default = its first
- * preset (MATRX, CLTRX, THRU: none, their defaults kept); MNM 55 (MNM-1's machines), MD 55, MODERN 40, CLASSIC 56;
+ * preset (MATRX, CLTRX, THRU: none, their defaults kept); MNM 59 (MNM-1's machines), MD 55, MODERN 40, CLASSIC 56;
  * names unique, 1..8 characters; every knob within its model's range; at most 4 per drum voice (8 per MNM-1
  * machine), each in its voice's bank */
 static uint32_t bank_of_model(uint32_t m)
@@ -74,7 +74,7 @@ static void test_defaults_are_first_presets(void)
 {
     uint32_t m, i, j, ok = 1, n[NMODELS] = {0};
     preset_t p, q;
-    for (m = 0; m < NMODELS; m++) {
+    for (m = 0; m < MM_MODEL_FIRST; m++) {
         uint32_t id = preset_first_of(m);
         if (m == DM_MATRX || m == DM_CLTRX || m == DM_FXTHRU) {   /* (THRU: no knob but INP) */
             ok &= id == PRE_NONE;
@@ -88,17 +88,19 @@ static void test_defaults_are_first_presets(void)
             break;
         }
     }
-    check("every model's default knobs = its first preset's (MATRX, CLTRX, THRU: no preset)", ok);
-    ok = PRE_NFACT == 206u && PRE_BANK_START[PB_MNM] == 0u && PRE_BANK_START[PB_MD] == 55u &&
-         PRE_BANK_START[PB_MODERN] == 110u && PRE_BANK_START[PB_CLASSIC] == 150u && PRE_BANK_START[PB_USER] == PRE_NFACT &&
+    check("every legacy model's default knobs = its first preset's (MATRX, CLTRX, THRU: no preset)", ok);
+    ok = PRE_NFACT == 330u && PRE_BANK_START[PB_MNM] == 0u && PRE_BANK_START[PB_MD] == 59u &&
+         PRE_BANK_START[PB_MODERN] == 114u && PRE_BANK_START[PB_CLASSIC] == 154u && PRE_BANK_START[PB_SOURCE] == 210u &&
+         PRE_BANK_START[PB_ARCHIVE] == 234u && PRE_BANK_START[PB_USER] == PRE_NFACT &&
          PRE_BANK_START[PB_N] == PRE_NFACT + PRE_NUSER;          /* (fix 8: MD, MODERN, CLASSIC; MNM-1: MNM first) */
     for (i = 0; i < PRE_NFACT; i++)
-        ok &= preset_get(i, &p) && preset_bank_of(i) == (i < 55u ? (uint32_t)PB_MNM : i < 110u ? (uint32_t)PB_MD
-                                                         : i < 150u ? (uint32_t)PB_MODERN : (uint32_t)PB_CLASSIC);
+        ok &= preset_get(i, &p) && preset_bank_of(i) == (i < 59u ? (uint32_t)PB_MNM : i < 114u ? (uint32_t)PB_MD
+                                                         : i < 154u ? (uint32_t)PB_MODERN : i < 210u ? (uint32_t)PB_CLASSIC
+                                                         : i < 234u ? (uint32_t)PB_SOURCE : (uint32_t)PB_ARCHIVE);
     ok &= preset_bank_of(user_id(0)) == PB_USER && preset_bank_of(user_id(127)) == PB_USER &&
           !preset_get(user_id(128), &p) && !preset_get(PRE_NONE, &p);
-    check("banks: MNM 55, MD 55, MODERN 40, CLASSIC 56, then USER 128; a bad id: none", ok);
-    for (i = 0, ok = 1; i < PRE_NFACT; i++) {
+    check("banks: MNM 59, MD 55, MODERN 40, CLASSIC 56, SOURCE 24, ARCHIVE 96, USER 128; a bad id: none", ok);
+    for (i = 0, ok = 1; i < PRE_FULL_FIRST; i++) {
         uint32_t len = (uint32_t)strnlen(PRE_FACTORY[i].name, sizeof PRE_FACTORY[i].name);
         p = PRE_FACTORY[i];
         ok &= p.model < NMODELS && len >= 1u && len <= 8u && bank_of_model(p.model) == preset_bank_of(i) &&
@@ -114,18 +116,19 @@ static void test_defaults_are_first_presets(void)
             break;
         }
     }
-    check("every preset: a name of 1..8 characters, unique; its knobs in its model's ranges; in its voice's bank; "
+    check("every legacy preset: a name of 1..8 characters, unique; its knobs in its model's ranges; in its voice's bank; "
           "<= 4 per voice", ok);
     ok = preset_get(0, &p) && p.model == DM_MMSAW && !strcmp(p.name, "SUPERSAW") &&
          preset_get(PRE_BANK_START[PB_MD], &p) && p.model == DM_KTRX && !strcmp(p.name, "SUBTHUMP") &&
          preset_get(preset_first_of(DM_CPEFM), &p) && !strcmp(p.name, "BUZZCLAP") && p.k[0] == 24 &&
          preset_get(PRE_BANK_START[PB_CLASSIC], &p) && p.model == DM_K808 && !strcmp(p.name, "ROUNDBD") &&
          preset_get(PRE_BANK_START[PB_MODERN], &p) && p.model == DM_KBOOM && !strcmp(p.name, "BOOMBD") &&
-         preset_get(PRE_NFACT - 1u, &p) && p.model == DM_CLAVE && !strcmp(p.name, "BLIP");
-    check("SUPERSAW first, SUBTHUMP MD's first, BUZZCLAP CPEFM's default (TUNE +24), BOOMBD, ROUNDBD each bank's first, BLIP last", ok);
+         preset_get(PRE_FULL_FIRST - 1u, &p) && p.model == DM_CLAVE && !strcmp(p.name, "BLIP");
+    check("SUPERSAW first, SUBTHUMP MD's first, BUZZCLAP CPEFM's default (TUNE +24), BOOMBD, ROUNDBD each bank's first, BLIP ends legacy bank", ok);
     check("bank names, in order", !strcmp(N_PBANK[PB_MNM], "MNM") && !strcmp(N_PBANK[PB_MD], "MD") &&
           !strcmp(N_PBANK[2], "MODERN") && !strcmp(N_PBANK[3], "CLASSIC") && !strcmp(N_PBANK[PB_USER], "USER") &&
-          PB_MNM == 0 && PB_MD == 1 && PB_MODERN == 2 && PB_CLASSIC == 3 && PB_USER == 4);
+          PB_MNM == 0 && PB_MD == 1 && PB_MODERN == 2 && PB_CLASSIC == 3 && PB_SOURCE == 4 && PB_ARCHIVE == 5 && PB_USER == 6 &&
+          !strcmp(N_PBANK[PB_SOURCE], "SOURCE") && !strcmp(N_PBANK[PB_ARCHIVE], "ARCHIVE"));
 }
 
 static void test_load_sets_voice_only(void)
@@ -550,7 +553,7 @@ static void test_edit_marks(void)
 #include "preset_old_022.h"
 static void test_bank_order_old_refs(void)
 {
-    static const uint32_t PICK[NTRK] = {0, 54, 55, 110, 111, 150, 60, 120};   /* 0.22.0 ids: each bank's ends */
+    static const uint32_t PICK[NTRK] = {0, 54, 55, 110, 111, 150};   /* 0.22.0 ids: each bank's ends */
     uint32_t i, k, moved = 0, ok = 1;
     preset_t p;
     for (i = 0; i < PRE022_N; i++) {
@@ -564,7 +567,7 @@ static void test_bank_order_old_refs(void)
         }
     }
     check("every 0.22.0 factory preset's uid: the same preset (name, voice) in the new banks",
-          ok && PRE022_N + 55u == PRE_NFACT);          /* (MNM-1: + the MNM bank's 55) */
+          ok && PRE022_N + 59u == PRE_FULL_FIRST && PRE_FULL_FIRST + MM_SOUND_COUNT == PRE_NFACT);          /* (MNM-1: + the MNM bank's 59) */
     check("(the reorders moved every 0.22.0 id: MNM-1's MNM bank comes first)", moved == PRE022_N);
     fresh();
     for (k = 0; k < NTRK; k++)                       /* a 0.22.0 project: the presets of every bank, one edited */

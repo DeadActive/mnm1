@@ -106,9 +106,19 @@ static void fm1_reset_reason(void)
     fm1_boot.wdt_con = fm1_p33_read(FM1_P3_WDT_CON);
 }
 
+/* Ported from MONO2K by Inigo Hernandez (GPL-3.0-only): hold the worker before reset. */
+static inline void fm1_core1_stop(void)
+{
+#if FELUCCA_DUAL_CORE
+    *(volatile uint32_t *)0x1EEE004u |= 2u;
+    *(volatile uint32_t *)0x1EEE004u &= ~8u;
+    __asm__ volatile("csync" ::: "memory");
+#endif
+}
 static void fm1_reboot(void)
 {
     __asm__ volatile("cli");
+    fm1_core1_stop();
     fm1_p33_or(FM1_P3_PR_PWR, 0x10);
     for (;;)
         ;
@@ -119,6 +129,7 @@ static void fm1_enter_uboot(void)
     static const char k[16] = "usb_update_mode";
     uint32_t i;
     __asm__ volatile("cli");
+    fm1_core1_stop();
     /* CPU0 write limits (fm1_guard.h) may cover the mailbox: drop them all */
     if (!(*(volatile uint32_t *)0x1EEE240u & 1u))
         *(volatile uint32_t *)0x1EEE240u = 0xE7u;
@@ -132,6 +143,7 @@ static void fm1_enter_uboot(void)
 
 FM1_INLINE void fm1_core_reset(void)
 {
+    fm1_core1_stop();
     FM1_PWR_CON |= 0x10u;
     for (;;)
         ;
@@ -141,6 +153,7 @@ FM1_INLINE void fm1_enter_update(const uint8_t *parm)
 {
     uint32_t i;
     __asm__ volatile("cli");
+    fm1_core1_stop();
     if (!(*(volatile uint32_t *)0x1EEE240u & 1u))       /* drop CPU0 write limits, as fm1_enter_uboot */
         *(volatile uint32_t *)0x1EEE240u = 0xE7u;
     *(volatile uint32_t *)0x1EEE348u = 0;

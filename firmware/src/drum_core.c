@@ -68,7 +68,7 @@ static const dmodel_t *trk_model(const track_t *t) { return &DMODELS[(uint32_t)t
 static int dv_gate_open(const track_t *t, const dvoice_t *v)
 {
     const dmodel_t *m = &DMODELS[t->model % NMODELS];
-    return v->active && m->gate && (m->mm ? v->ms.mm.gate : (v->x[2] & 1));
+    return v->active && m->gate && (m->mm >= 2u ? mmen_state[mmen_index(t)].gate : m->mm ? v->ms.mm.gate : (v->x[2] & 1));
 }
 
 /* a track's swing: its own + the global one, capped at 100 (upstream #31: 200 made 1.8 / 0.2 steps); seq.c, slicer.c */
@@ -100,6 +100,8 @@ static void model_follow(track_t *t)                     /* the model changed: t
 {
     if (t->model != (uint8_t)t->p[P_MODEL]) {
         drum_cut(t);
+        mmen_ready[mmen_index(t)] = 0;
+        if (mmen_index(t) < NTRK) fxs[mmen_index(t)].model = 255;
         t->model = (uint8_t)t->p[P_MODEL];
     }
 }
@@ -270,8 +272,8 @@ static uint32_t vg_render(int32_t *out, uint32_t n)
         out[i] = 0;
     if (!vg_trk.v[0].active)
         return 0;
-    if (DMODELS[vg_trk.model].mm && vg_trk.v[0].t >= VG_MM_GATE && vg_trk.v[0].ms.mm.gate)
-        mm_gate(&vg_trk, &vg_trk.v[0], 0);           /* a synth machine's note: held 0.3 s, then its RELEASE */
+    if (DMODELS[vg_trk.model].mm && vg_trk.v[0].t >= VG_MM_GATE && dv_gate_open(&vg_trk, &vg_trk.v[0]))
+        DMODELS[vg_trk.model].gate(&vg_trk, &vg_trk.v[0], 0);           /* a synth machine's note: held 0.3 s, then its RELEASE */
     DMODELS[vg_trk.model].render(&vg_trk, &vg_trk.v[0], out, n);
     return 1;
 }
@@ -319,9 +321,17 @@ static void drum_set_model(track_t *t, uint32_t mi)
     const dmodel_t *m = &DMODELS[mi % NMODELS];
     uint32_t i, id = preset_first_of(mi % NMODELS);
     preset_t pr;
+    if (model_refused(t, mi % NMODELS))
+        return;
     drum_cut(t);
+    if (t->p[P_MODEL] >= MM_MODEL_FIRST && mi < MM_MODEL_FIRST)
+        mmen_legacy_defaults(t);
+    mmen_ready[mmen_index(t)] = 0;
+    if (mmen_index(t) < NTRK) fxs[mmen_index(t)].model = 255;
     t->p[P_MODEL] = (int16_t)(mi % NMODELS);
     t->model = (uint8_t)t->p[P_MODEL];
+    if (m->mm >= 2u)
+        mm_controls_init(t, (uint32_t)(t - trk) < NTRK ? (uint32_t)(t - trk) : 0, m->mm - 2u);
     if (id != PRE_NONE && preset_get(id, &pr)) {
         preset_apply(t, &pr, id);
         return;

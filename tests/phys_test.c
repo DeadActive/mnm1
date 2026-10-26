@@ -202,13 +202,59 @@ static void test_memb_stable(void)
     check("MEMB DECAY 127: the voice ends by its 6 s lifetime", !trk[0].v[0].active);
 }
 
-int main(void)
+/* Pre-scheduling-change PCM fingerprints: MEMB parameter extremes/retriggers. */
+static void test_memb_fingerprint(int print_only)
 {
+    static const uint32_t expected[4]={0xe163772bu,0x40df35c4u,0x70754d7fu,0xf444de93u};
+    for(unsigned group=0;group<4;group++) {
+        uint32_t hash=2166136261u,rng=0x12478u;int32_t out[CTL];
+        for(unsigned config=0;config<16;config++) {
+            host_init();memb_on(&trk[0]);
+            for(unsigned i=0;i<8;i++) {
+                const param_desc_t *d=&DMODELS[DM_MEMB].edit[i];
+                rng=rng*1664525u+1013904223u;
+                trk[0].p[P_E0+i]=group==0?d->def:group==1?d->min:group==2?d->max:d->min+(int32_t)(rng%(unsigned)(d->max-d->min+1));
+            }
+            drum_play(&trk[0],96,(int32_t)config-8);
+            for(unsigned b=0;b<1024;b++) {
+                if(b==128||b==256)drum_play(&trk[0],b==128?1:127,(int32_t)config-8);
+                render_track(&trk[0],out,CTL);
+                for(unsigned i=0;i<CTL;i++)hash=(hash^(uint32_t)out[i])*16777619u;
+            }
+        }
+        if(print_only)printf("%08x\n",hash);else check("MEMB PCM identical across safe multiply scheduling",hash==expected[group]);
+    }
+}
+
+int main(int argc,char **argv)
+{
+    if(argc==2&&!strcmp(argv[1],"--fingerprint")){test_memb_fingerprint(1);return 0;}
+    test_memb_fingerprint(0);
+    {
+        uint32_t rng=0x43561u;int ok=1;
+        for(unsigned i=0;i<20000;i++) {
+            rng=rng*1664525u+1013904223u;int32_t a=(int32_t)rng;
+            rng=rng*1664525u+1013904223u;int32_t b=(int32_t)rng;
+            unsigned shift=i%64;
+            int32_t qla,qlb,bright=(int32_t)((uint32_t)a%65537u),damp=(int32_t)((uint32_t)b%65537u);
+            uint64_t qa=px_memb_q(bright,damp,&qla),qb=px_modal_q(0,bright,damp,&qlb);
+            ok &= qa==qb&&qla==qlb;
+            uint64_t x=((uint64_t)(uint32_t)a<<32)|(uint32_t)b,y=((uint64_t)(uint32_t)b<<32)|(uint32_t)a;
+            ok &= px_memb_mul(a,b,shift)==(int32_t)(((int64_t)a*b)>>shift);
+            ok &= px_memb_umul(x,y,shift)==((x*y)>>shift);
+        }
+        static const uint64_t edges[]={0,1,2,3,0x7fffffffu,0x80000000u,0xffffffffu,UINT64_MAX,0x100000001ull};
+        for(unsigned a=0;a<sizeof(edges)/sizeof(edges[0]);a++)
+            for(unsigned b=0;b<sizeof(edges)/sizeof(edges[0]);b++)
+                for(unsigned shift=0;shift<64;shift++)
+                    ok &= px_memb_umul(edges[a],edges[b],shift)==((edges[a]*edges[b])>>shift);
+        check("MEMB isolated products retain exact signed/unsigned rounding",ok);
+    }
     test_memb_modes();
     test_memb_bend_pos();
     test_memb_voice();
     test_memb_accent();
-    test_modal_sustained();
+    if(argc!=2||strcmp(argv[1],"--memb-only"))test_modal_sustained();
     test_memb_retrigger_vel();
     test_memb_stable();
     printf(fails ? "phys_test: %d FAILED\n" : "phys_test: all passed\n", fails);

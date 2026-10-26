@@ -9,12 +9,13 @@ parameter locks and parameter slide, all on the FM-1's own keys, knobs and scree
 MNM-1 is inspired by and forked from [Hortator](https://deadactive.github.io/hortator/) by DEADACTIVE (0.23.3), which
 is built on [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita (Hügelton Instruments). Hortator's
 sequencer, project storage, screen, PERFORM effects and compressor carry over; the tracks, machines and pages are
-MNM-1's own.
+MNM-1's own. Calibrated audio algorithms and 120 complete sounds are ported from
+[MONO2K](https://github.com/InigoHernandez/mono2k) by Inigo Hernandez (GPL-3.0-only).
 
 - **Play it in your browser:** <https://galfaroth.github.io/mnm1/>. The page runs the real firmware, compiled to
   WebAssembly, on an FM-1 you can play with the mouse, a touch screen or the computer keyboard.
 - **Install it on your FM-1:** <https://galfaroth.github.io/mnm1/webapp/installer/>, in Chrome or Edge, over the
-  FM-1's USB cable. Or from a terminal: `python3 tools/fm1_install.py mnm1-0.6.1.fwsc --port FM-1 --yes`
+  FM-1's USB cable. Or from a terminal: `python3 tools/fm1_install.py mnm1-0.7.0.fwsc --port FM-1 --yes`
   (needs `mido` and `python-rtmidi`).
 - **What comes next:** [docs/ROADMAP.md](docs/ROADMAP.md).
 - **What changed:** [CHANGELOG.md](CHANGELOG.md).
@@ -27,6 +28,11 @@ responsibility if your FM-1 is damaged or misbehaves. M-VAVE's own updater takes
 
 - **Six tracks, one machine each.** Synth machines: SWSAW, SWPLS (SuperWave), SID, FM+, DPRO, GND, VO-6. FX machines:
   THRU, REVRB, CHRS, DYNMX, RING, PHASR, FLANG. Any machine on any track.
+- **Calibrated machines:** G-SIN, GPRC, SID2, FMST, FMDYN, SAW2, ENS, WAVE, VOX2, FMPAR, PUL2, CHO2,
+  RING2, DYN2, NOISE, DKICK, DSNAR, DHAT and DCYMB. These keep their own complete audio chain and parameter laws;
+  the original models remain available for saved projects. VOX consonant/switch controls marked `n/a` are not implemented.
+- **More effects:** STRNG, PIPE, CHORD and MODAL machines; the LOFI page adds tape, adaptive crunch, hiss/dust and
+  drive. REVERB TYPE adds STEREO. Calibrated tracks also expose DESTROY and MOD FX pages.
 - **Routing.** An FX machine takes the previous track (NEIB) or a bus (AB, CD, EF) as its input,
   as an insert or a send and return. Each track's OUT picks its bus, or none.
 - **8-knob pages.** SYNTH, AMP (ATK HOLD DEC REL / DIST LVL PAN PORT), FILTER (BASE WDTH HPQ LPQ / ATK DEC BOFS WOFS),
@@ -37,8 +43,12 @@ responsibility if your FM-1 is damaged or misbehaves. M-VAVE's own updater takes
 - **Three LFOs a track:** any knob of the track, another LFO, or pitch; FREE, TRIG, HOLD, ONE, HALF; eleven waves.
 - **Parameter locks:** a lock lasts until the next trig; up to 240 a project, recorded live or set in
   LOCK mode; **parameter slide** glides locked values to the next lock.
-- **Presets:** 55 factory presets for the synth and FX machines (bank MNM), besides the drum banks and 128 user
-  slots. The PRESETS knob steps through them; hold EDIT for the list.
+- **Presets:** 330 factory sounds: 210 existing/extended presets, 24 complete sounds in SOURCE and 96 in ARCHIVE.
+  The PRESETS knob steps through them; hold EDIT for the list. Audition/cancel restores the complete sound.
+  Calibrated sounds have separate AMP VOL and mixer LEVEL, and LFO target/phase controls. The existing 128 USER
+  slots still store legacy eight-knob presets; saving a full calibrated sound requires the expanded store.
+- **Calibrated live input:** channels 1–6 play the corresponding calibrated track chromatically; held keys feed its
+  arpeggiator. The original drum-channel mapping stays available.
 - **From Hortator:** up to 64 steps per track with its own length, PROB and A/B conditions, ratchets, accents,
   a per-track arpeggiator, live recording, mutes, SONG, the COMP sidechain compressor, PERFORM (live master effects),
   MIDI and clock over USB and TRS, MIDI LEARN, four project slots.
@@ -49,7 +59,7 @@ responsibility if your FM-1 is damaged or misbehaves. M-VAVE's own updater takes
 | --- | --- |
 | **EDIT** | SYNTH (the machine's 8 knobs), then AMP, then TRACK (MODEL, NOTE, OUT, IN, GATE, sends). Press again for the next row or page |
 | **ENV** | FILTER |
-| **FX** | EFFECTS, then SLICER, REVERB, CHORUS. Hold for PERFORM |
+| **FX** | EFFECTS, SLICER, REVERB, CHORUS, LOFI; calibrated tracks also DESTROY and MOD FX. Hold for PERFORM |
 | **LFO** | LFO 1, 2, 3 |
 | **ARP** | the track's arpeggiator: MODE SPEED RANGE CHORD |
 | **SEQ** | STEP (the steps on the white keys), PATTERN, MOTION, SONG |
@@ -86,7 +96,7 @@ The web simulator and site ([docs/SIMULATOR.md](docs/SIMULATOR.md)) need Python 
 emscripten (a native `emcc`, e.g. `brew install emscripten`, or Docker):
 
 ```sh
-tools/build_sim.sh --preview --package dist/mnm1-0.6.1.fwsc
+tools/build_sim.sh --preview --package dist/mnm1-0.7.0.fwsc
 cd build/sim/preview && python3 -m http.server 8001
 ```
 

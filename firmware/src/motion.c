@@ -24,7 +24,7 @@ typedef char motion_store_size[sizeof(motion_store_t) == 964u ? 1 : -1];
 #define MO_SL 8u                                 /* knobs gliding at once on a track (PARAMETER SLIDE) */
 typedef struct { uint8_t id, on; int16_t from, to; uint32_t len, at; } motion_slide_t;
 #define MO_W ((P_COUNT + 31u) / 32u)            /* words of a track's moved-knob bits */
-typedef char motion_ids_fit[P_COUNT <= 96 && MO_W == 3u ? 1 : -1];
+typedef char motion_ids_fit[P_COUNT <= 128 ? 1 : -1];
 
 static struct {
     motion_store_t s;                /* the events and PLAY bits (saved with the project) */
@@ -44,7 +44,7 @@ static int motion_param(uint32_t id)
         return 1;
     return (id >= P_E0 && id <= P_E7) || id == P_LEVEL || id == P_PAN || (id >= P_DIST && id <= P_REV) ||
            (id >= P_SLPAT && id <= P_SLDEPTH) || (id >= P_AATK && id <= P_PORT) || (id >= P_FWDTH && id <= P_NLEN) ||
-           (id >= P_FLPQ && id <= P_FDEC) || (id >= P_FWOFS && id <= P_DWID);   /* AMP, FILTER, EFFECTS, LEN; not
+           (id >= P_FLPQ && id <= P_FDEC) || (id >= P_FWOFS && id < P_COUNT);   /* AMP, FILTER, EFFECTS, LEN; not
                                                                                  * the ARP's */
 }
 static int motion_on(uint32_t k) { return (int)((mo.s.on >> k) & 1u); }
@@ -72,7 +72,7 @@ static void motion_take_base(uint32_t k)
     uint32_t id;
     for (id = 0; id < P_COUNT; id++)
         mo.base[k][id] = *motion_slot(&trk[k], id);
-    mo.act[k][0] = mo.act[k][1] = mo.act[k][2] = 0;
+    memset(mo.act[k], 0, sizeof mo.act[k]);
     mo.base_ok |= (uint8_t)(1u << k);
 }
 static int motion_sliding(uint32_t k, uint32_t id)   /* knob id of track k is gliding (PARAMETER SLIDE) */
@@ -98,7 +98,7 @@ static void motion_restore(uint32_t k)            /* the moved knobs back to the
 {
     memset(mo.sl[k], 0, sizeof mo.sl[k]);
     motion_restore_keep(k, 0);
-    mo.act[k][0] = mo.act[k][1] = mo.act[k][2] = 0;
+    memset(mo.act[k], 0, sizeof mo.act[k]);
 }
 
 /* ---- the ISR (seq.c) */
@@ -148,7 +148,9 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t s)
     for (i = 0; i < m->count && !here; i++)
         here = m->ev[i].trk == k && m->ev[i].step == s;
     if (!s || here || (s < NSTEP && t->step[s].on)) {
-        moved = mo.act[k][0] | mo.act[k][1] | mo.act[k][2];
+        moved = 0;
+        for (i = 0; i < MO_W; i++)
+            moved |= mo.act[k][i];
         if (!s)
             motion_restore(k);                     /* (the loop's start: every glide ends too) */
         else

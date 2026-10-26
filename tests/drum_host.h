@@ -51,6 +51,11 @@ static void host_reset_fx(void)                     /* FX buses, master, slicer,
     memset(rev_comb, 0, sizeof rev_comb);
     memset(rev_ap, 0, sizeof rev_ap);
     memset(&fx, 0, sizeof fx);
+    memset(&bfx, 0, sizeof bfx);
+    memset(mmtd_profile, 0, sizeof mmtd_profile);
+    mmen_reset_all();
+    mmen_lfo_reset();
+    mmarp_reset();
     memset(sl, 0, sizeof sl);
     memset(sl_buf, 0, sizeof sl_buf);
     memset(fxs, 0, sizeof fxs);                     /* MNM-1: the FX machines (mm_fx.c) */

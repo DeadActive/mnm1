@@ -25,7 +25,7 @@ typedef struct {
 } proj_trk_va_t;
 typedef struct {
     uint32_t magic, size;
-    int16_t g[G_COUNT];
+    int16_t g[41];   /* frozen original global count */
     uint8_t sel, rsv[3];
     proj_trk_va_t t[8];
     motion_store_v_t motion;
@@ -41,7 +41,7 @@ typedef struct {
 } proj_trk_vb_t;
 typedef struct {
     uint32_t magic, size;
-    int16_t g[G_COUNT];
+    int16_t g[41];   /* frozen original global count */
     uint8_t sel, rsv[3];
     proj_trk_vb_t t[8];
     motion_store_v_t motion;
@@ -58,7 +58,7 @@ typedef struct {
 /* FDRC (0.17.0 .. 0.20.0): everything but the presets, 3688 B; FDRD's fields up to the name at the same offsets */
 typedef struct {
     uint32_t magic, size;
-    int16_t g[G_COUNT];
+    int16_t g[41];   /* frozen original global count */
     uint8_t sel, rsv[3];
     proj_trk_vd_t t[8];
     motion_store_v_t motion;
@@ -69,7 +69,7 @@ typedef struct {
 /* FDRD (0.21.0 .. 0.22.0): everything but the DEST slots' new parameters, 3712 B */
 typedef struct {
     uint32_t magic, size;
-    int16_t g[G_COUNT];
+    int16_t g[41];   /* frozen original global count */
     uint8_t sel, rsv[3];
     proj_trk_vd_t t[8];
     motion_store_v_t motion;
@@ -139,7 +139,7 @@ typedef struct {
 /* the sound pack's format: everything but the motion. 3028 B */
 typedef struct {
     uint32_t magic, size;
-    int16_t g[G_COUNT];
+    int16_t g[41];   /* frozen original global count */
     uint8_t sel, rsv[3];
     proj_trk_v9_t t[8];
     uint32_t sum;
@@ -147,7 +147,7 @@ typedef struct {
 /* motion's format: everything but the song and the name. 3544 B */
 typedef struct {
     uint32_t magic, size;
-    int16_t g[G_COUNT];
+    int16_t g[41];   /* frozen original global count */
     uint8_t sel, rsv[3];
     proj_trk_v9_t t[8];
     motion_store_v_t motion;
@@ -156,7 +156,7 @@ typedef struct {
 /* FDR9: everything but the FILTER. 3592 B */
 typedef struct {
     uint32_t magic, size;
-    int16_t g[G_COUNT];
+    int16_t g[41];   /* frozen original global count */
     uint8_t sel, rsv[3];
     proj_trk_v9_t t[8];
     motion_store_v_t motion;
