@@ -1,43 +1,39 @@
 {
- "version": "0.11.0",
- "commit": "fb751d2",
+ "version": "1.0.0",
+ "commit": "1dfe723",
  "date": "2026-10-26",
  "since": [],
  "release": {
-  "version": "0.11.0",
+  "version": "1.0.0",
   "date": "2026-10-26",
   "notes": [
    {
-    "title": "Add chained TRIG POS routing",
-    "text": "Add chained TRIG POS routing with cycle protection and note ownership, so an older source release cannot cut a newer independent note."
+    "title": "Add SONG RANGE, MIX and FLOW",
+    "text": "Add SONG RANGE, MIX and FLOW: per-row transpose, offset, length, mutes, tempo, counted backward loops and jumps. STOP restores the original tempo, mutes and track options. Offset follows source notes, locks, slides and swing together."
    },
    {
-    "title": "Add MULTI ALL/SPLIT/START/TRANS modes, a",
-    "text": "Add MULTI ALL/SPLIT/START/TRANS modes, a selectable MIDI channel (default 7), panel keyboard input, quantized sequence changes, shared ADSR and portamento. Keep individual arpeggiators in ALL mode and handle overlapping MIDI/panel notes."
+    "title": "Add SONG FILE with confirmed",
+    "text": "Add SONG FILE with confirmed NEW SONG and reloadable AFTER HOURS demo. The eight-row arrangement uses kick, snare, hats, bass, melody, locks and phaser; built-in phrases occupy no user slots. Saved demo arrangements retain their built-in source references."
    },
    {
-    "title": "Add two velocity and two",
-    "text": "Add two velocity and two keytrack destinations per sound, composed with parameter locks, slides and LFOs without changing stored bases. Generated ARP notes retain the last input key and velocity."
+    "title": "Preserve MNM3\u2013MNM7 projects and version-one/two/three",
+    "text": "Preserve MNM3\u2013MNM7 projects and version-one/two/three pattern payloads with frozen readers. MNM8 projects occupy 3648 bytes; version-four patterns occupy 3034 bytes."
    },
    {
-    "title": "Add independent HP/LP keytracking switches.",
-    "text": "Add independent HP/LP keytracking switches. OFF uses a fixed C4 reference; controller response, envelope/portamento curves and this reference are documented interpretations, not newly measured hardware laws."
+    "title": "Make SELECT navigate all pages",
+    "text": "Make SELECT navigate all pages in the current family, including appended performance and SONG pages."
    },
    {
-    "title": "Preserve full performance settings in",
-    "text": "Preserve full performance settings in MNM7 projects and version-two full sounds/kits; older records load with disabled/default options. Loading a kit clears performance runtime, and cancelling sound audition restores the full sound."
+    "title": "Distinguish a committed project with",
+    "text": "Distinguish a committed project with a failed startup-bank marker as SAVED; BOOT ERROR. Add read-only USB storage diagnostics with the failing operation, address, error and flash status; no protection flags are changed."
    },
    {
-    "title": "Make mixer level bars readable",
-    "text": "Make mixer level bars readable with an empty outlined background, solid level fill and the existing peak marker."
+    "title": "Verify all legacy banks through",
+    "text": "Verify all legacy banks through simulated reboot, interrupted writes and write protection; keep the previous committed data on failed saves."
    },
    {
-    "title": "Isolate RING's rounded multiplies from",
-    "text": "Isolate RING's rounded multiplies from target load scheduling hazards while preserving its sample arithmetic."
-   },
-   {
-    "title": "All 187 hardware stress cases",
-    "text": "All 187 hardware stress cases have measurements across two runs. The owner confirmed manually resetting the first run; it is not counted as a firmware failure. Heavy combinations can still exceed the audio deadline."
+    "title": "Publish the matching 1.0 simulator",
+    "text": "Publish the matching 1.0 simulator and installer; remove the roadmap from the project website."
    }
   ]
  }

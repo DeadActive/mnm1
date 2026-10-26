@@ -3,7 +3,7 @@
 // The FM-1 firmware in the audio thread: every quantum renders 128 frames (the firmware's audio ISR runs per
 // half buffer, its UI frame every 15 ms of audio, inside sim_render). Input arrives as messages; frames (the
 // screen + LEDs) and written flash sectors go back to the page.
-import { Fm1Sim } from './engine.js?v=37bd68a1fa';
+import { Fm1Sim } from './engine.js?v=ca1a1419ee';
 
 class Fm1Processor extends AudioWorkletProcessor {
   constructor(options) {
