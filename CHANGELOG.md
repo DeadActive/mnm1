@@ -14,7 +14,7 @@ own history is in its repository.
 - Preserve full performance settings in MNM7 projects and version-two full sounds/kits; older records load with disabled/default options. Loading a kit clears performance runtime, and cancelling sound audition restores the full sound.
 - Make mixer level bars readable with an empty outlined background, solid level fill and the existing peak marker.
 - Isolate RING's rounded multiplies from target load scheduling hazards while preserving its sample arithmetic.
-- The earlier 0.10 hardware stress run recorded a timer-return exception. All 187 cases have measurements across two runs; this does not establish uninterrupted device stability or remove CPU limits on heavy combinations.
+- All 187 hardware stress cases have measurements across two runs. The owner confirmed manually resetting the first run; it is not counted as a firmware failure. Heavy combinations can still exceed the audio deadline.
 
 ## 0.10.0 - 2026-10-26
 

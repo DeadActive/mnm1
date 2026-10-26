@@ -11,8 +11,8 @@ FM-1, **[no]** not possible on this hardware.
 Implemented through 0.10: the available MONO2K engines, presets and effects; expanded storage (8 patterns,
 8 kits and 128 user sounds after explicit migration); separate AMP/FILTER/LFO trig lanes and special trig
 kinds; swing masks, fractional tempo multipliers, manual arpeggiator modes and transpose/scale controls.
-The firmware and matching browser simulator are published together. A 0.10 stress run reset during an
-interrupt return; all 187 cases were measured across two runs, without establishing uninterrupted stability.
+The firmware and matching browser simulator are published together. All 187 stress cases were measured across two runs;
+the owner confirmed manually resetting the first run, so it is not counted as a firmware failure.
 Some heavy combinations exceed the audio deadline. This remains a beta release.
 
 ## Implemented in 0.11 — performance
