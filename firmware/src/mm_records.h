@@ -7,7 +7,7 @@
  * descriptor determines signedness. Field order keeps uint16 fields aligned. */
 #ifndef MNM_RECORDS_H
 #define MNM_RECORDS_H
-#define MMR_VERSION 1u
+#define MMR_VERSION 2u
 #define MMR_PATTERN_VERSION 3u
 #define MMR_PATTERN_OLD_SIZE 2704u
 #define MMR_PATTERNS 8u
@@ -22,15 +22,19 @@ static const uint8_t MMR_KIT_PARAMS[] = {P_CHOKE,P_NOTE,P_DUCK,P_PRIO,P_OUT,P_IN
 typedef struct {
     uint8_t used;
     char name[9];
-    uint16_t preset_ref;
+    uint8_t preset_ref[2];
     uint8_t edited;
     uint8_t p[P_COUNT];
+    perf_options_t perf;
 } mmr_sound_t;
+static unsigned mmr_preset_ref(const mmr_sound_t *s){return s->preset_ref[0]|((unsigned)s->preset_ref[1]<<8);}
+static void mmr_preset_set(mmr_sound_t *s,unsigned ref){s->preset_ref[0]=(uint8_t)ref;s->preset_ref[1]=(uint8_t)(ref>>8);}
 typedef struct {
     uint8_t used;
     char name[NAME_LEN+1];
     int16_t config[NTRK][MMR_KIT_N];
     mmr_sound_t sound[NTRK];
+    multi_options_t multi;
 } mmr_kit_t;
 typedef struct {
     uint16_t version;
@@ -46,6 +50,38 @@ typedef struct {
 } mmr_pattern_t;
 typedef struct {uint16_t version,reserved;mmr_kit_t kit[MMR_KITS_PER_OBJECT];} mmr_kits_t;
 typedef struct {uint16_t version,reserved;mmr_sound_t sound[MMR_SOUNDS_PER_OBJECT];} mmr_sounds_t;
+/* Frozen version-one records: convert in scratch, never rewrite on read. */
+typedef struct {uint8_t used;char name[9];uint16_t preset_ref;uint8_t edited,p[97];} mmr_sound_v1_t;
+typedef struct {uint8_t used;char name[13];int16_t config[6][7];mmr_sound_v1_t sound[6];} mmr_kit_v1_t;
+_Static_assert(sizeof(mmr_sound_v1_t)==110 && sizeof(mmr_kit_v1_t)==758,"old sound/kit layout");
+_Static_assert(sizeof(mmr_sound_t)==119,"full sound must fit 32 records per object");
+static void mmr_sound_upgrade(mmr_sound_t *out,const mmr_sound_v1_t *old)
+{
+    /* Expanded group records move upward; kit input is a separate local copy. */
+    for(unsigned i=110;i-->0;)((uint8_t *)out)[i]=((const uint8_t *)old)[i];
+    memset(&out->perf,0,sizeof out->perf);
+}
+static int mmr_group_upgrade(void *data,unsigned n,int kits)
+{
+    uint16_t version;memcpy(&version,data,2);
+    if(version==MMR_VERSION)return n==(kits?sizeof(mmr_kits_t):sizeof(mmr_sounds_t));
+    if(version!=1||n!=(kits?1520u:3524u))return 0;
+    uint8_t *bytes=data;
+    if(kits){
+        mmr_kits_t *out=data;
+        for(unsigned i=2;i-->0;){
+            mmr_kit_v1_t old;memcpy(&old,bytes+4+i*sizeof old,sizeof old);
+            memset(&out->kit[i],0,sizeof out->kit[i]);
+            memcpy(&out->kit[i],&old,98);
+            for(unsigned k=0;k<6;k++)mmr_sound_upgrade(&out->kit[i].sound[k],&old.sound[k]);
+            multi_options_default(&out->kit[i].multi);
+        }
+    }else{
+        mmr_sounds_t *out=data;
+        for(unsigned i=32;i-->0;)mmr_sound_upgrade(&out->sound[i],(const void *)(bytes+4+i*110));
+    }
+    version=MMR_VERSION;memcpy(data,&version,2);return 1;
+}
 _Static_assert(sizeof(mmr_pattern_t)<=3840,"pattern payload too large");
 _Static_assert(sizeof(mmr_kits_t)<=3840,"kit payload too large");
 _Static_assert(sizeof(mmr_sounds_t)<=3840,"sound payload too large");
@@ -82,6 +118,7 @@ static int mmr_decode(uint8_t v,const param_desc_t *d)
 static int mmr_sound_valid(const mmr_sound_t *s)
 {
     unsigned model=s->p[P_MODEL];
+    if(!perf_options_valid(&s->perf))return 0;
     if(s->used!=1||model>=NMODELS||s->edited>1||s->name[8]||!mmr_name_valid(s->name,8))return 0;
     for(unsigned id=0;id<P_COUNT;id++){
         if(!mmr_sound_param(id)){if(s->p[id])return 0;continue;}
@@ -94,28 +131,29 @@ static int mmr_sound_valid(const mmr_sound_t *s)
 static int mmr_sound_capture(mmr_sound_t *s,const track_t *t,const char *name)
 {
     unsigned model=(unsigned)t->p[P_MODEL];
-    if(model>=NMODELS)return 0;
+    if(model>=NMODELS||!perf_options_valid(&t->perf))return 0;
     for(unsigned id=0;id<P_COUNT;id++)if(mmr_sound_param(id)){
         const param_desc_t *d=mmr_desc(model,id);int v=t->p[id];
         if(v<d->min||v>d->max||v< -128||v>127)return 0;
     }
     memset(s,0,sizeof *s);s->used=1;
     mmr_name_copy(s->name,sizeof s->name,name);
-    s->preset_ref=(uint16_t)preset_rec_enc(t->pre);s->edited=!!t->pre_ed;
+    mmr_preset_set(s,preset_rec_enc(t->pre));s->edited=!!t->pre_ed;s->perf=t->perf;
     for(unsigned id=0;id<P_COUNT;id++)if(mmr_sound_param(id))s->p[id]=(uint8_t)t->p[id];
     return 1;
 }
 static int mmr_sound_apply(track_t *t,const mmr_sound_t *s)
 {
     if(!mmr_sound_valid(s))return 0;
-    unsigned model=s->p[P_MODEL],pre=preset_rec_dec(s->preset_ref);
+    unsigned model=s->p[P_MODEL],pre=preset_rec_dec(mmr_preset_ref(s));
     for(unsigned id=0;id<P_COUNT;id++)if(mmr_sound_param(id))t->p[id]=(int16_t)mmr_decode(s->p[id],mmr_desc(model,id));
     if(pre<PRE_NFACT&&PRE_FACTORY[pre].model!=model)pre=PRE_NONE;
-    t->pre=(uint16_t)pre;t->pre_ed=s->edited;
+    t->pre=(uint16_t)pre;t->pre_ed=s->edited;t->perf=s->perf;
     return 1;
 }
 static int mmr_kit_valid(const mmr_kit_t *kit)
 {
+    if(!multi_options_valid(&kit->multi))return 0;
     if(kit->used!=1||kit->name[NAME_LEN]||!mmr_name_valid(kit->name,NAME_LEN))return 0;
     for(unsigned k=0;k<NTRK;k++){
         if(!mmr_sound_valid(&kit->sound[k]))return 0;
@@ -134,11 +172,13 @@ static int mmr_kit_capture(mmr_kit_t *kit,const track_t *tracks,const char *name
         if(!mmr_sound_capture(&kit->sound[k],&tracks[k],label))return 0;
         for(unsigned j=0;j<MMR_KIT_N;j++)kit->config[k][j]=tracks[k].p[MMR_KIT_PARAMS[j]];
     }
+    kit->multi=song.multi;
     kit->used=1;if(mmr_kit_valid(kit))return 1;kit->used=0;return 0;
 }
 static int mmr_kit_apply(track_t *tracks,const mmr_kit_t *kit)
 {
     if(!mmr_kit_valid(kit))return 0;
+    song.multi=kit->multi;
     for(unsigned k=0;k<NTRK;k++){
         mmr_sound_apply(&tracks[k],&kit->sound[k]);
         for(unsigned j=0;j<MMR_KIT_N;j++)tracks[k].p[MMR_KIT_PARAMS[j]]=kit->config[k][j];

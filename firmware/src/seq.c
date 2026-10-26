@@ -170,6 +170,7 @@ static uint32_t hit_gate_len(const track_t *t)
 /* the gate of the voice the track's model started closes now (its release); gate_n 0 */
 static void acid_gate_off(track_t *t)
 {
+    route_release(t);
     const dmodel_t *m = &DMODELS[t->model % NMODELS];
     t->gate_n = 0;
     if (m->gate && t->v[0].active)
@@ -242,7 +243,10 @@ static __attribute__((noinline)) void acid_step(track_t *t, const step_t *s, con
     if (held && t->slide_in) {
         t->nt = (int8_t)clamp(s->nt, NT_MIN, NT_MAX);
         v->vel = t->rat_vel;                           /* glide reads it: the slid-to step's accent */
+        int temporary=ctlmod_note_begin(t,t->rat_vel,t->nt,ST_NOAMP);
         m->glide(t, v);
+        ctlmod_note_end(t,temporary);
+        drum_forward_note(t,t->rat_vel,t->nt);
         arp_note(t, 1);
     } else {
         drum_play(t, t->rat_vel, s->nt);
@@ -348,6 +352,111 @@ static uint8_t calibrated_key_owner[27], calibrated_key_note[27];
 
 static int32_t keys_nt(uint32_t key) { return (int32_t)key - 7 + 12 * song.octave; }   /* NOTE - 60 */
 
+static void seq_start(void);
+static uint8_t multi_note_mask[128],multi_panel_note[27],direct_midi_held[NTRK][16];
+static int direct_note_held(unsigned k,unsigned note)
+{
+    if(direct_midi_held[k][note/8]&(1u<<(note%8)))return 1;
+    for(unsigned i=0;i<27;i++)if(calibrated_key_owner[i]==k+1&&calibrated_key_note[i]==note)return 1;
+    return 0;
+}
+static int direct_track_held(unsigned k)
+{
+    for(unsigned i=0;i<16;i++)if(direct_midi_held[k][i])return 1;
+    for(unsigned i=0;i<27;i++)if(calibrated_key_owner[i]==k+1)return 1;
+    return 0;
+}
+static void input_note_released(unsigned k,unsigned note)
+{
+    track_t *t=&trk[k];
+    if(!direct_note_held(k,note)&&!(multi.held[note]&&(multi_note_mask[note]&(1u<<k))))mmarp_held_off(t,note);
+    if(!multi_owner[k]&&!direct_track_held(k)){
+        for(unsigned i=multi.count;i>0;i--)if(multi_note_mask[multi.order[i-1]]&(1u<<k)){
+            multi_owner[k]=(uint8_t)(multi.order[i-1]+1);break;
+        }
+    }
+    if(!mmarp_keep_gate(t)&&!t->gate_n)acid_gate_off(t);
+}
+static void multi_stop(void)
+{
+    for(unsigned k=0;k<NTRK;k++){
+        for(unsigned note=0;note<128;note++)if(multi_note_mask[note]&(1u<<k)){
+            if(!direct_note_held(k,note))mmarp_held_off(&trk[k],note);
+        }
+        if(multi_owner[k])acid_gate_off(&trk[k]);
+    }
+    memset(&multi,0,sizeof multi);memset(multi_owner,0,sizeof multi_owner);
+    memset(multi_note_mask,0,sizeof multi_note_mask);memset(multi_panel_note,0,sizeof multi_panel_note);
+    song.multi_pitch16=0;multi_dispatching=0;
+}
+static void multi_play_track(unsigned k,unsigned note,unsigned velocity)
+{
+    track_t *t=&trk[k];multi_dispatching=1;
+    t->rat_vel=(uint8_t)velocity;ctlmod_input(t,velocity,(int)note-60);
+    if(!(t->seq.arp_mode_order&7u)||!mmarp_active(t))drum_play_one(t,velocity,(int)note-60,0);
+    multi_dispatching=0;multi_owner[k]=(uint8_t)(note+1);route_owner[k]=(uint8_t)(k+1);
+    t->gate_n=0;t->slide_in=0;
+}
+static void multi_apply_note(unsigned note,unsigned velocity)
+{
+    const multi_options_t *config=&song.multi;
+    if(config->mode>=MULTI_SEQSTART){
+        int first=!multi.envactive;
+        multi.target16=((int)note-60)*16;
+        if(first||!config->portamento){multi.pitch16=multi.target16;multi.pitch_fraction=0;}
+        song.multi_pitch16=(int16_t)multi.pitch16;
+        if(config->mode==MULTI_SEQSTART||first||!song.playing)seq_start();
+        multi_env_on(&multi);return;
+    }
+    unsigned roots=multi_tracks(config,note),mask=0;
+    for(unsigned k=0;k<NTRK;k++)if(roots&(1u<<k))mask|=route_mask(k);
+    multi_note_mask[note]|=(uint8_t)mask;
+    for(unsigned k=0;k<NTRK;k++)if(mask&(1u<<k)){
+        mmarp_held_on(&trk[k],note);multi_play_track(k,note,velocity);
+    }
+    if(config->mode==MULTI_ALL)multi_env_on(&multi);
+}
+static void multi_note(unsigned note,unsigned velocity,int on,unsigned source)
+{
+    if(!song.multi.mode||note>127)return;
+    multi_hold(&multi,note,velocity,on,source);
+    if(on){
+        if(song.multi.mode>=MULTI_SEQSTART&&song.multi.timing&&song.playing&&multi.phase){
+            multi.pending=1;multi.note=(uint8_t)note;multi.pending_velocity=(uint8_t)velocity;
+        }else multi_apply_note(note,velocity);
+        return;
+    }
+    if(multi.held[note])return;
+    if(multi.pending&&multi.note==note){
+        int last=multi_last(&multi,0,127);
+        multi.pending=last>=0;
+        if(last>=0){multi.note=(uint8_t)last;multi.pending_velocity=multi.velocity[last];}
+    }
+    unsigned mask=multi_note_mask[note];multi_note_mask[note]=0;
+    for(unsigned k=0;k<NTRK;k++)if(mask&(1u<<k)){
+        track_t *t=&trk[k];
+        if(!direct_note_held(k,note))mmarp_held_off(t,note);
+        if(multi_owner[k]!=note+1)continue;
+        int last=-1;
+        for(unsigned i=multi.count;i>0;i--)if(multi_note_mask[multi.order[i-1]]&(1u<<k)){last=multi.order[i-1];break;}
+        if(last>=0)multi_play_track(k,(unsigned)last,multi.velocity[last]);
+        else {multi_owner[k]=0;if(!mmarp_keep_gate(t))acid_gate_off(t);}
+    }
+    if(!multi.count)multi_env_off(&multi);
+}
+static void multi_tick(unsigned sequence_samples,unsigned audio_samples)
+{
+    if(song.multi.mode>=MULTI_SEQSTART){
+        int boundary=multi_clock_tick(&multi,song.playing?sequence_samples:0,multi_quantum(&song.multi,beat_samples()));
+        if(multi.pending&&(!song.playing||boundary)){
+            unsigned note=multi.note,velocity=multi.pending_velocity;multi.pending=0;
+            if(multi.held[note])multi_apply_note(note,velocity);
+        }
+        multi_pitch_tick(&multi,&song.multi,audio_samples);
+        song.multi_pitch16=(int16_t)multi.pitch16;
+    }
+}
+
 /* the sounding key let go (or a key on another track took over): the note it holds on a gated model ends; a gate the
  * sequencer took over since (counting, or held) is the sequencer's: left alone */
 static __attribute__((noinline)) void keys_off(void)
@@ -415,6 +524,7 @@ static __attribute__((noinline)) void keys_on(uint32_t key)
     track_t *t = TSEL;
     const dmodel_t *m = trk_model(t);
     int32_t nt = clamp(keys_nt(key), NT_MIN, NT_MAX);
+    t->rat_vel=100;ctlmod_input(t,100,nt);multi_owner[song.sel]=0;
     int legato = kz.key && kz.trk == song.sel;
     if (kz.key && !legato)
         keys_off();                                    /* mono over the keys: another track's held note ends */
@@ -436,7 +546,10 @@ static __attribute__((noinline)) void keys_on(uint32_t key)
         if (legato && dv_gate_open(t, v) && t->gate_n == 0u) {
             t->nt = (int8_t)nt;
             v->vel = 100;                              /* glide reads it: no accent */
+            int temporary=ctlmod_note_begin(t,100,nt,ST_NOAMP);
             m->glide(t, v);
+            ctlmod_note_end(t,temporary);
+            drum_forward_note(t,100,nt);
             arp_note(t, 1);
         } else {
             drum_play(t, 100u, nt);
@@ -484,12 +597,18 @@ static void keyboard_block(void)
             ch &= ~bit;
         }
     }
+    if(ch)for(key=0;key<27u;key++)if((ch>>key)&1u){
+        if(!(cur&(1u<<key))&&multi_panel_note[key]){
+            multi_note(multi_panel_note[key]-1,0,0,1);multi_panel_note[key]=0;ch&=~(1u<<key);
+        }else if((cur&(1u<<key))&&song.multi.mode&&song.seq_mode==3){
+            unsigned note=(unsigned)clamp(60+keys_nt(key),0,127);
+            multi_panel_note[key]=(uint8_t)(note+1);multi_note(note,100,1,1);ch&=~(1u<<key);
+        }
+    }
     for (key = 0; key < 27u; key++)
         if (calibrated_key_owner[key] && ((ch & ~cur) >> key & 1u)) {
-            track_t *t = &trk[calibrated_key_owner[key] - 1u];
-            mmarp_held_off(t, calibrated_key_note[key]);
-            calibrated_key_owner[key] = 0;
-            if (!mmarp_keep_gate(t) && !t->gate_n) acid_gate_off(t);
+            unsigned owner=calibrated_key_owner[key]-1,note=calibrated_key_note[key];
+            calibrated_key_owner[key]=0;input_note_released(owner,note);
         }
     if (kz.key && ((ch >> (kz.key - 1u)) & 1u) && !((cur >> (kz.key - 1u)) & 1u))
         keys_off();                                 /* KEYS: the sounding key let go, whoever has the keys now */
@@ -561,15 +680,20 @@ static void midi_block(void)
         }
         if ((st == 0x90u || st == 0x80u) && learn_note(d1, st == 0x90u && d2))
             continue;                               /* a learned note (any channel): its action, no drum */
+        if((st==0x90u||st==0x80u)&&song.multi.mode&&ch==song.multi.channel){
+            multi_note(d1,d2,st==0x90u&&d2,0);continue;
+        }
         if ((st == 0x90u || st == 0x80u) && ch < NTRK && (mmen_is_model(trk[ch].model)||(trk[ch].seq.arp_mode_order&7u))) {
             track_t *t = &trk[ch];
             if (st == 0x90u && d2) {
+                direct_midi_held[ch][d1/8]|=(uint8_t)(1u<<(d1%8));multi_owner[ch]=0;
+                t->rat_vel=(uint8_t)d2;ctlmod_input(t,d2,(int)d1-60);
                 mmarp_held_on(t, d1);
                 if(!(t->seq.arp_mode_order&7u)||!mmarp_active(t))drum_play(t, d2, (int32_t)d1 - 60);
                 t->gate_n = 0;
             } else {
-                mmarp_held_off(t, d1);
-                if (!mmarp_keep_gate(t) && !t->gate_n) acid_gate_off(t);
+                direct_midi_held[ch][d1/8]&=(uint8_t)~(1u<<(d1%8));
+                input_note_released(ch,d1);
             }
             continue;
         }
@@ -589,6 +713,7 @@ static void seq_stop(void);
 
 static void seq_start(void)
 {
+    multi.phase=0;
     uint32_t i;
     acid_gates_close();                             /* (PLAY while playing: nothing slides into step 0) */
     for (i = 0; i < NTRK; i++) {                    /* every track from its step 0, together */
@@ -616,6 +741,7 @@ static void seq_start(void)
 
 static void seq_stop(void)
 {
+    multi_stop();memset(direct_midi_held,0,sizeof direct_midi_held);
     song.playing = 0;
     mmarp_stop_manual();
     acid_gates_close();                             /* ACID: no note drones on */
@@ -632,6 +758,7 @@ static void seq_tick(track_t *t, uint32_t n)
             if (trk_model(t)->mm >= 2u) {
                 t->gate_n = 0;
                 mmen_gate(t, &t->v[0], 2);
+                route_release(t);
             } else acid_gate_off(t);
         } else
             t->gate_n -= n;
@@ -759,6 +886,7 @@ static void events_block(uint32_t n)
             if ((pr >> i) & 1u)
                 drum_cut(&trk[i]);
     }
+    multi_tick(seq_n,n);
     run = !clock_mode || midi_clock.have_pulse || !song.playing;   /* following: step 0 / the resumed step on the first
                                                      * pulse; stopped, seq_tick counts ACID's gates in real time */
     if (run) {

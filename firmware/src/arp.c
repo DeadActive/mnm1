@@ -76,7 +76,7 @@ static void mmarp_held_off(track_t *t,unsigned note)
  unsigned j=0;for(unsigned i=0;i<mmarp_nheld[k];i++)if(mmarp_held[k][i]!=note)mmarp_held[k][j++]=mmarp_held[k][i];
  mmarp_nheld[k]=(uint8_t)j;if(!j)t->arp_on=0;
 }
-static void mmarp_reset(void) { memset(mmarp_nheld,0,sizeof mmarp_nheld);memset(mmarp_down,0,sizeof mmarp_down);memset(mmarp_first,0,sizeof mmarp_first);memset(mmarp_rhythm,0,sizeof mmarp_rhythm); }
+static void mmarp_reset(void) { memset(direct_midi_held,0,sizeof direct_midi_held);memset(multi_note_mask,0,sizeof multi_note_mask);memset(multi_panel_note,0,sizeof multi_panel_note);memset(mmarp_nheld,0,sizeof mmarp_nheld);memset(mmarp_down,0,sizeof mmarp_down);memset(mmarp_first,0,sizeof mmarp_first);memset(mmarp_rhythm,0,sizeof mmarp_rhythm); }
 static void mmarp_manual_tick(track_t *t,uint32_t n)
 {
  unsigned k=(unsigned)(t-trk);if(k>=NTRK||!mmarp_active(t)){t->arp_on=0;return;}t->arp_on=1;
@@ -90,7 +90,7 @@ static void mmarp_manual_tick(track_t *t,uint32_t n)
  if(!((t->seq.arp_mask[pos/8]>>(pos%8))&1u))return;
  unsigned flags=mmarp_first[k]?0:(t->seq.arp_flags&7u);mmarp_first[k]=0;
  uint32_t gate=t->gate_n;int8_t nt=t->nt;
- arp_self=1;drum_play_masked(t,100,clamp(note+t->seq.arp_offset[pos]-60,NT_MIN,NT_MAX),flags);arp_self=0;
+ arp_self=1;drum_play_masked(t,t->rat_vel?t->rat_vel:100,clamp(note+t->seq.arp_offset[pos]-60,NT_MIN,NT_MAX),flags);arp_self=0;
  t->gate_n=gate;t->nt=nt;
 }
 static void mmarp_tick(track_t *t,uint32_t n)
@@ -106,7 +106,7 @@ static void mmarp_tick(track_t *t,uint32_t n)
  left+=(int32_t)mmarp_period_q8(t);t->arp_pos=(uint32_t)left;
  int32_t note=mmarp_next(mmarp_held[k],mmarp_nheld[k],mode,(unsigned)clamp(t->p[P_ARPR],0,127),&t->arp_k,&t->rng);
  uint32_t gate=t->gate_n;int8_t nt=t->nt;
- arp_self=1;drum_play(t,100u,clamp(note-60,NT_MIN,NT_MAX));arp_self=0;
+ arp_self=1;drum_play(t,t->rat_vel?t->rat_vel:100,clamp(note-60,NT_MIN,NT_MAX));arp_self=0;
  t->gate_n=gate;t->nt=nt;
 }
 

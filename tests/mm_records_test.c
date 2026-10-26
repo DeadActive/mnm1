@@ -22,6 +22,7 @@ static void defaults(void)
 static void assert_sound_equal(const track_t *a,const track_t *b)
 {
     for(unsigned id=0;id<P_COUNT;id++)if(mmr_sound_param(id))assert(a->p[id]==b->p[id]);
+    assert(!memcmp(&a->perf,&b->perf,sizeof a->perf));
 }
 static void roundtrip(void)
 {
@@ -40,7 +41,7 @@ static void test_sounds(void)
 {
     for(unsigned id=0;id<PRE_NFACT;id++){
         defaults();assert(!preset_load(&trk[0],id));roundtrip();
-        assert(sound.preset_ref==PRE_UID[id]);
+        assert(mmr_preset_ref(&sound)==PRE_UID[id]);
     }
     for(unsigned n=0;n<128;n++){
         defaults();unsigned model=random_word()%NMODELS;
@@ -111,4 +112,56 @@ static void test_blocks(void)
     kits.kit[1].sound[5].p[P_MODEL]=255;assert(!mmr_kits_valid(&kits));
     printf("record bytes: sound %zu, pattern %zu, two kits %zu, 32 sounds %zu\n",sizeof sound,sizeof pattern,sizeof kits,sizeof sounds);
 }
-int main(void){test_sounds();test_split();test_blocks();puts("mm_records_test: all passed");return 0;}
+static void test_upgrade_and_performance(void)
+{
+    static struct {uint16_t version,reserved;mmr_sound_v1_t sound[32];} old_sounds;
+    static struct {uint16_t version,reserved;mmr_kit_v1_t kit[2];} old_kits;
+    static union {mmr_sounds_t sounds;mmr_kits_t kits;} work;
+    defaults();assert(mmr_sound_capture(&sound,&trk[0],"BASE"));
+    old_sounds.version=1;
+    for(unsigned i=0;i<32;i++){
+        memcpy(&old_sounds.sound[i],&sound,110);
+        snprintf(old_sounds.sound[i].name,9,"S%02u",i);
+        old_sounds.sound[i].preset_ref=(uint16_t)(0x8000u+i);
+        old_sounds.sound[i].edited=i&1;old_sounds.sound[i].p[P_LEVEL]=(uint8_t)(64+i);
+    }
+    memcpy(&work,&old_sounds,sizeof old_sounds);assert(mmr_group_upgrade(&work,sizeof old_sounds,0));assert(mmr_sounds_valid(&work.sounds));
+    const perf_options_t disabled={0};
+    for(unsigned i=0;i<32;i++){
+        assert(!memcmp(&work.sounds.sound[i],&old_sounds.sound[i],110));
+        assert(mmr_preset_ref(&work.sounds.sound[i])==0x8000u+i);
+        assert(!memcmp(&work.sounds.sound[i].perf,&disabled,sizeof disabled));
+    }
+    assert(mmr_kit_capture(&kit,trk,"KIT"));old_kits.version=1;
+    for(unsigned i=0;i<2;i++){
+        memcpy(&old_kits.kit[i],&kit,98);snprintf(old_kits.kit[i].name,13,"KIT%u",i);
+        for(unsigned k=0;k<6;k++)old_kits.kit[i].sound[k]=old_sounds.sound[i*6+k];
+    }
+    memcpy(&work,&old_kits,sizeof old_kits);assert(mmr_group_upgrade(&work,sizeof old_kits,1));assert(mmr_kits_valid(&work.kits));
+    multi_options_t dm;multi_options_default(&dm);
+    for(unsigned i=0;i<2;i++){
+        assert(!memcmp(&work.kits.kit[i],&old_kits.kit[i],98));assert(!memcmp(&work.kits.kit[i].multi,&dm,sizeof dm));
+        for(unsigned k=0;k<6;k++){
+            assert(!memcmp(&work.kits.kit[i].sound[k],&old_kits.kit[i].sound[k],110));
+            assert(!memcmp(&work.kits.kit[i].sound[k].perf,&disabled,sizeof disabled));
+        }
+    }
+    for(unsigned kind=0;kind<2;kind++){
+        unsigned len=kind?sizeof old_kits:sizeof old_sounds;
+        const void *old=kind?(const void*)&old_kits:(const void*)&old_sounds;
+        const unsigned badlen[]={0,1,2,len-1,len+1};
+        for(unsigned i=0;i<5;i++){memcpy(&work,old,len);assert(!mmr_group_upgrade(&work,badlen[i],kind));}
+        memcpy(&work,old,len);((uint16_t*)&work)[0]=99;assert(!mmr_group_upgrade(&work,len,kind));
+        memcpy(&work,old,len);((uint16_t*)&work)[1]=1;
+        assert(!(mmr_group_upgrade(&work,len,kind)&&(kind?mmr_kits_valid(&work.kits):mmr_sounds_valid(&work.sounds))));
+    }
+    defaults();trk[0].perf=(perf_options_t){.dest={P_E0+1,P_FCUT+1,P_PTCH+1,P_EQG+1},.amount={-64,63,-17,31},.route_flags=6|PERF_HP_OFF};
+    roundtrip();assert(!memcmp(&sound.perf,&trk[0].perf,sizeof sound.perf));
+    song.multi=(multi_options_t){4,72,2,7,19,31,87,127,42};
+    assert(mmr_kit_capture(&kit,trk,"PERFORM"));
+    multi_options_default(&song.multi);memset(&trk[0].perf,0,sizeof trk[0].perf);
+    assert(mmr_kit_apply(trk,&kit));assert(!memcmp(&song.multi,&kit.multi,sizeof song.multi));assert(!memcmp(&trk[0].perf,&kit.sound[0].perf,sizeof trk[0].perf));
+    kit.multi.mode=5;assert(!mmr_kit_valid(&kit));kit.multi.mode=4;
+    sound.perf.route_flags=7;assert(!mmr_sound_valid(&sound));
+}
+int main(void){test_sounds();test_split();test_blocks();test_upgrade_and_performance();puts("mm_records_test: all passed");return 0;}

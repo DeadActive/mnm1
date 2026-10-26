@@ -762,6 +762,7 @@ static void mix_block(int32_t *out, uint32_t n)
         bus_l[0][i] = bus_r[0][i] = bus_l[1][i] = bus_r[1][i] = bus_l[2][i] = bus_r[2][i] = 0;
     }
     trk_post_on = 0;
+    ctlmod_begin();
     lfo_apply(n);                                       /* LFOs: the modulated knobs for this block (lfo.c) */
     events_block(n);
     mmen_lfo_prepare(n);
@@ -786,6 +787,7 @@ static void mix_block(int32_t *out, uint32_t n)
         mix_r[i] = bus_r[0][i] + bus_r[1][i] + bus_r[2][i];
     }
     lfo_restore();                                      /* the knobs as set again */
+    ctlmod_end();
     if (perf)
         perf_pre(mix_l, mix_r, send_d, send_r, n);  /* THROW */
     if (!bfx.bus_ready) {
@@ -822,6 +824,12 @@ static void mix_block(int32_t *out, uint32_t n)
     }
     if (perf)
         perf_block(mix_l, mix_r, n);                    /* the FX layer's effects (perform.c) */
+    if(multi.envactive&&song.multi.mode!=MULTI_SPLIT){
+        for(i=0;i<n;i++){
+            int gain=multi_env_sample(&multi,&song.multi);
+            if(gain<32767){mix_l[i]=mulq15(mix_l[i],gain);mix_r[i]=mulq15(mix_r[i],gain);}
+        }
+    }
     if (metro.due | metro.env)
         metro_block(mix_l, mix_r, n, mg);               /* METRO: after the FX layer, at the MASTER level */
     for (i = 0; i < n; i++) {

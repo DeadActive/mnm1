@@ -210,6 +210,8 @@ static void fxphs_render(track_t *t, dvoice_t *v, int32_t *out, uint32_t n)
 
 /* ---- RINGMOD: WAVE EXT MIX TUNE, INP. The input times a carrier at the track's note (+ TUNE): a sine (WAVE 0)
  * morphing to a triangle (127); EXT how much of the input is ring-modulated, MIX dry / wet */
+/* Keep RING's live pitch state from spilling loads beside wide products on the target CPU. */
+static __attribute__((noinline)) int32_t fxring_mul(int32_t x, int32_t q15) { return fx_mul(x, q15); }
 static void fxring_render(track_t *t, dvoice_t *v, int32_t *out, uint32_t n)
 {
     const int16_t *p = &t->p[P_E0];
@@ -218,13 +220,14 @@ static void fxring_render(track_t *t, dvoice_t *v, int32_t *out, uint32_t n)
     mm_t *m = &v->ms.mm;
     if (fx_scratch(t, v))
         return;
-    m->tgt = seq_note(t) * 16;                          /* the note (GATE ON: drum_play keeps the voice) */
+    /* This target updates every block; mm_pitch adds the live MULTI delta. */
+    m->tgt = mm_note16(t) - seq_multi_pitch(t) + t->multi_pitch_ref;
     inc = mm_inc(mm_pitch(t, v, 0) - t->p[P_E0] * 16 + clamp(p[3], -24, 24) * 16);
     for (i = 0; i < n; i++) {
-        int32_t x = fx_inp(p, fx_in_buf[i]), sn = sine_i(m->ph[0]), car = sn + fx_mul(osc_tri(m->ph[0]) - sn, wv);
-        int32_t rm = fx_mul(x, car);
+        int32_t x = fxring_mul(fx_in_buf[i], clamp(p[7], 0, 127) * 512), sn = sine_i(m->ph[0]);
+        int32_t car = sn + fxring_mul(osc_tri(m->ph[0]) - sn, wv), rm = fxring_mul(x, car);
         m->ph[0] += inc;
-        y[i] = fx_mix(x, fx_mix(x, rm, ext), mix);
+        y[i] = x + fxring_mul(fxring_mul(rm - x, ext * 258), mix * 258);
     }
     fx_out(t, v, y, out, n);
 }

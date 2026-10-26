@@ -175,6 +175,7 @@ static void preset_apply(track_t *t, const preset_t *p, uint32_t id)
         t->pre=(uint16_t)id;t->pre_ed=0;
         return;
     }
+    perf_options_default(&t->perf);
     const dmodel_t *m = &DMODELS[p->model % NMODELS];
     uint32_t i;
     if ((uint32_t)t->p[P_MODEL] != p->model || t->model != p->model) {
@@ -238,12 +239,13 @@ static void preset_put(track_t *t, uint32_t model, const int16_t *k, uint32_t pr
 
 /* Full sound auditions also change AMP/FILTER/LFO/effect controls. Keep the old
  * eight-knob restore API for its callers; the list restores its complete snapshot. */
-static void preset_put_full(track_t *t, const int16_t *p, uint32_t pre, uint32_t ed)
+static void preset_put_full(track_t *t, const int16_t *p, uint32_t pre, uint32_t ed, const perf_options_t *perf)
 {
     fm1_irq_off();
     if (t->p[P_MODEL] != p[P_MODEL] || t->model != (uint32_t)p[P_MODEL])
         drum_cut(t);
     memcpy(t->p, p, sizeof t->p);
+    t->perf=*perf;
     t->model = (uint8_t)t->p[P_MODEL];
     t->pre = (uint16_t)pre;
     t->pre_ed = (uint8_t)ed;

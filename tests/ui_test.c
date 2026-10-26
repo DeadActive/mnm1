@@ -127,8 +127,8 @@ static void test_sound_pages(void)
     edit_next();
     pg = cur_page();
     n = fam_pages(FAM_SND, &k);
-    check("EDIT: SYNTH, the upper row (the machine's knobs 1-4: TUNE DECAY TONE TAIL); EDIT's 6 pages for C808",
-          n == 6u && k == 1u && pg->tab == TAB_SYN && !pg->half && page_id(pg, 0) == P_E0 && page_id(pg, 3) == P_E3);
+    check("EDIT: SYNTH, the upper row (the machine's knobs 1-4: TUNE DECAY TONE TAIL); EDIT's 9 pages for C808",
+          n == 9u && k == 1u && pg->tab == TAB_SYN && !pg->half && page_id(pg, 0) == P_E0 && page_id(pg, 3) == P_E3);
     snap_page("engines/zz_c808_edit_1");
     edit_next();
     pg = cur_page();
@@ -151,6 +151,11 @@ static void test_sound_pages(void)
     pg = cur_page();
     check("EDIT again: TRACK 2/2 (PRIO, the REVERB and CHORUS sends; no MUTE)", page_id(pg, 0) == P_PRIO &&
           page_id(pg, 1) == P_REV && page_id(pg, 2) == P_CHOR && page_id(pg, 3) == 0xFFu);
+    const char *performance_pages[] = {"ASSIGN VEL", "ASSIGN KEY", "TRIG TRACK"};
+    for (unsigned i = 0; i < 3; i++) {
+        edit_next();
+        check(performance_pages[i], cur_page()->scope == SC_PERFOPT && str_eq(cur_page()->title, performance_pages[i]));
+    }
     edit_next();
     n = fam_pages(FAM_SND, &k);
     check("EDIT again: back to SYNTH's upper row", k == 1u);

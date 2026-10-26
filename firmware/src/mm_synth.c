@@ -14,7 +14,7 @@ enum { MS_ATK, MS_HOLD, MS_DEC, MS_REL };
 #define MM_P16_MAX (128 * 16 - 1)
 
 static inline uint32_t mm_inc(int32_t p16) { return PITCH_INC[clamp(p16, 0, MM_P16_MAX)]; }
-static inline int32_t mm_note16(const track_t *t) { return seq_note(t) * 16; }
+static inline int32_t mm_note16(const track_t *t) { return seq_note(t) * 16 + seq_multi_pitch(t)%16; }
 /* the glide's per-block factor (ENV_EXP: ~99 % of the way in its time): PORT 1..127 = ~4 ms .. ~3 s; 0: a slide's
  * ~60 ms */
 static int32_t mm_glide_k(int32_t port)
@@ -27,7 +27,9 @@ static void mm_start(track_t *t, dvoice_t *v)
     mm_t *m = &v->ms.mm;
     uint32_t i, r = (uint32_t)v->rng;
     m->tgt = mm_note16(t);
-    m->p16 = t->p[P_PORT] > 0 && t->mm_p16 ? t->mm_p16 : m->tgt;
+    m->p16 = t->p[P_PORT] > 0 && t->mm_p16
+        ? t->mm_p16 + seq_multi_pitch(t) - t->multi_pitch_ref : m->tgt;
+    t->multi_pitch_ref=(int16_t)seq_multi_pitch(t);
     m->gk = mm_glide_k(t->p[P_PORT]);
     m->amp = 0;
     m->stage = MS_ATK;
@@ -44,6 +46,9 @@ static void mm_glide(track_t *t, dvoice_t *v)            /* a slide or a legato 
 {
     mm_t *m = &v->ms.mm;
     m->tgt = mm_note16(t);
+    /* Preserve the current audible pitch when changing its MULTI reference. */
+    m->p16 += seq_multi_pitch(t) - t->multi_pitch_ref;
+    t->multi_pitch_ref=(int16_t)seq_multi_pitch(t);
     t->trig_nt=t->nt;
     m->gk = mm_glide_k(t->p[P_PORT]);
     v->t = 0;
@@ -70,7 +75,7 @@ static int32_t mm_pitch(const track_t *t, dvoice_t *v, int32_t fine16)
         int32_t s = (int32_t)(((int64_t)d * m->gk) >> 16);
         m->p16 += s ? s : d > 0 ? 1 : -1;
     }
-    return m->p16 + t->p[P_E0] * 16 + fine16 + t->lpit;   /* (lpit: the LFOs' PTCH, lfo.c) */
+    return m->p16 + seq_multi_pitch(t)-t->multi_pitch_ref + t->p[P_E0] * 16 + fine16 + t->lpit;   /* (lpit: the LFOs' PTCH, lfo.c) */
 }
 
 /* the AMP envelope n samples on (amp[i], Q24, per sample); the voice ends once released (or decayed) under ENV_END */

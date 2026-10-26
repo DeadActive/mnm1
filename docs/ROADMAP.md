@@ -6,26 +6,30 @@ the order is the current plan.
 Legend: **[next]** being worked on next, **[planned]** wanted and feasible, **[maybe]** possible but costly on the
 FM-1, **[no]** not possible on this hardware.
 
-## Current release: 0.10.0
+## Current release: 0.11.0
 
 Implemented through 0.10: the available MONO2K engines, presets and effects; expanded storage (8 patterns,
 8 kits and 128 user sounds after explicit migration); separate AMP/FILTER/LFO trig lanes and special trig
 kinds; swing masks, fractional tempo multipliers, manual arpeggiator modes and transpose/scale controls.
-The firmware and matching browser simulator are published together. Hardware stress testing is still in
-progress: some heavy combinations exceed the audio deadline. This remains a beta release.
+The firmware and matching browser simulator are published together. A 0.10 stress run reset during an
+interrupt return; all 187 cases were measured across two runs, without establishing uninterrupted stability.
+Some heavy combinations exceed the audio deadline. This remains a beta release.
 
-## Next: 0.11 — performance
+## Implemented in 0.11 — performance
 
 - TRIG POS, including forwarding between tracks.
 - MULTI TRIG: all tracks, split keyboard, sequence restart/transpose, timing and shared envelope.
 - Two velocity and two keytrack assignments per track; independent HP/LP keytracking switches.
 
-## Then: 1.0 — SONG
+## Next: 1.0 — SONG
 
 - Song rows with transpose, offset, length, mutes and tempo.
 - Nested loops and jumps, followed by integration and hardware validation.
+- A musical demo SONG with kick, snare, melody, parameter locks and audible phaser/FX transitions.
+- An accessible NEW SONG action to leave the demo and start an empty arrangement without erasing saved work;
+  the demo remains available to load again.
 
-The optional items below are outside these two planned releases. Missing source features, including VOX
+The optional items below are outside the planned 1.0 release. Missing source features, including VOX
 consonants, still require implementation and validation; they are not claimed as imported.
 
 ## 1. Deeper machines

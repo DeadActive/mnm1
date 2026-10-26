@@ -1,10 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Drum machine fork: 2026 DEADACTIVE */
-/* Four reset-persistent RAM slots, backed by flash. MNM6 compacts parameters to
- * bytes and adds sequencer options. MNM3/4/5 flash records compact in place in
+/* Four reset-persistent RAM slots, backed by flash. MNM7 adds performance options; MNM6 compacted parameters to
+ * bytes and adds sequencer options. MNM3/4/5/6 flash records compact in place in
  * storage's scratch buffer; old .noinit layouts are ignored across upgrades. */
-#define PROJ_MAGIC 0x364D4E4Du                 /* "MNM6": byte parameters and sequencer options */
+#define PROJ_MAGIC 0x374D4E4Du                 /* "MNM7": performance options */
+#define PROJ_V6_MAGIC 0x364D4E4Du
 #define PROJ_V5_MAGIC 0x354D4E4Du
 #define PROJ_V4_MAGIC 0x344D4E4Du
 #define PROJ_V3_MAGIC 0x334D4E4Du              /* "MNM3" */
@@ -21,6 +22,8 @@ static int expanded_save_sound(uint32_t slot,const track_t *t);
 static int expanded_delete_sound(uint32_t slot);
 static int seq_options_valid(const seq_options_t *s);
 static int pattern_options_valid(const pattern_options_t *s);
+static int perf_options_valid(const perf_options_t *s);
+static int multi_options_valid(const multi_options_t *s);
 typedef struct {
     uint8_t p[P_COUNT];
     step_t step[NSTEP];
@@ -55,8 +58,21 @@ typedef struct {
     uint16_t pre[NTRK];                         /* FDRD: each track's preset: a factory one's uid, 0x8000 | a user
                                                  * slot, PRE_NONE none (presets.c preset_rec_enc: not the id) */
     uint8_t pre_ed[NTRK];                       /* FDRD: .. edited since (0 / 1) */
+    perf_options_t perf[NTRK];
+    multi_options_t multi;
     uint32_t sum;
 } project_t;
+/* Frozen MNM6 prefix: future live parameter/option counts must not change it. */
+typedef struct {uint8_t p[97];step_t step[64];} mnm_proj_v6_trk_t;
+typedef struct {
+    uint32_t magic,size;int16_t g[45];uint8_t sel,rsv[3];
+    mnm_proj_v6_trk_t t[6];uint8_t seq[6][33],options[4];
+    motion_store_t motion;chain_config_t song;char name[12];
+    uint16_t pre[6];uint8_t pre_ed[6];uint32_t sum;
+} mnm_project_v6_t;
+_Static_assert(sizeof(mnm_project_v6_t)==3456,"MNM6 layout changed");
+_Static_assert(__builtin_offsetof(project_t,motion)==__builtin_offsetof(mnm_project_v6_t,motion),"MNM6 prefix moved");
+_Static_assert(__builtin_offsetof(project_t,pre_ed)==__builtin_offsetof(mnm_project_v6_t,pre_ed),"MNM6 tail moved");
 /* Fixed old layout: do not use P_COUNT here when adding parameters. */
 typedef struct {
     int16_t p[PROJ_V3_PARAMS];
@@ -111,15 +127,32 @@ static void proj_compact_copy(void *dst,const void *src,unsigned n)
     uint8_t *d=dst;const uint8_t *s=src;
     while(n--)*d++=*s++;
 }
+static int proj_options_valid(const project_t *q)
+{
+    if(!pattern_options_valid(&q->options)||!multi_options_valid(&q->multi))return 0;
+    for(unsigned k=0;k<NTRK;k++)
+        if(!seq_options_valid(&q->seq[k])||!perf_options_valid(&q->perf[k]))return 0;
+    return 1;
+}
+static void proj_upgrade_performance(project_t *q)
+{
+    /* The old checksum/padding overlaps the appended fields. Clear all of it. */
+    memset((uint8_t *)q+__builtin_offsetof(project_t,perf),0,
+           sizeof *q-__builtin_offsetof(project_t,perf));
+    multi_options_default(&q->multi);
+    q->magic=PROJ_MAGIC;q->size=sizeof *q;q->sum=proj_sum(q);
+}
 static int proj_decode(project_t *q,uint32_t n)
 {
     const mnm_project_v3_t *v3=(const void *)q;
     const mnm_project_v5_t *v5=(const void *)q;
     unsigned old3=q->magic==PROJ_V3_MAGIC,old5=q->magic==PROJ_V5_MAGIC;
-    if(n==sizeof *q&&proj_ok(q)) {
-        if(!pattern_options_valid(&q->options))return 0;
-        for(unsigned k=0;k<NTRK;k++)if(!seq_options_valid(&q->seq[k]))return 0;
-        return 1;
+    if(n==sizeof *q&&proj_ok(q))return proj_options_valid(q);
+    if(q->magic==PROJ_V6_MAGIC) {
+        const mnm_project_v6_t *v6=(const void *)q;
+        if(n!=sizeof *v6||v6->size!=sizeof *v6||v6->sum!=proj_hash(v6,sizeof *v6-4))return 0;
+        proj_upgrade_performance(q);
+        return proj_options_valid(q);
     }
     unsigned oldsize=old3?sizeof *v3:sizeof *v5;
     if((!old3&&!old5&&q->magic!=PROJ_V4_MAGIC)||n!=oldsize||q->size!=oldsize)return 0;
@@ -137,14 +170,14 @@ static int proj_decode(project_t *q,uint32_t n)
         if(!old5)for(unsigned i=0;i<NSTEP;i++)q->t[k].step[i].rsv=0;
     }
     const void *tail=old3?(const void *)&v3->motion:(const void *)&v5->motion;
-    unsigned tailsize=(unsigned)((uint8_t *)&q->sum-(uint8_t *)&q->motion);
+    unsigned tailsize=__builtin_offsetof(mnm_project_v6_t,sum)-__builtin_offsetof(mnm_project_v6_t,motion);
     proj_compact_copy(&q->motion,tail,tailsize);
     if(old3)for(unsigned i=PROJ_V3_GLOBALS;i<G_COUNT;i++)q->g[i]=GP[i].def;
     q->sel=sel;memset(q->rsv,0,sizeof q->rsv);
     for(unsigned k=0;k<NTRK;k++)seq_options_default(&q->seq[k]);
     memset(&q->options,0,sizeof q->options);
-    q->magic=PROJ_MAGIC;q->size=sizeof *q;q->sum=proj_sum(q);
-    return 1;
+    proj_upgrade_performance(q);
+    return proj_options_valid(q);
 }
 
 #if FELUCCA_FLASH
@@ -195,11 +228,13 @@ static void project_save(uint32_t slot)
     for (i = 0; i < NTRK; i++) {
         for(unsigned j=0;j<P_COUNT;j++)p->t[i].p[j]=proj_byte((unsigned)trk[i].p[P_MODEL],j,trk[i].p[j]);
         p->seq[i]=trk[i].seq;
+        p->perf[i]=trk[i].perf;
         memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
         p->pre[i] = (uint16_t)preset_rec_enc(trk[i].pre);   /* (stable: a uid / a user slot, presets.c) */
         p->pre_ed[i] = trk[i].pre_ed;
     }
     p->options=song.seq;
+    p->multi=song.multi;
     p->motion = mo.s;                                  /* (stopped: the base is in the knobs) */
     p->song = chain.cfg;
     memcpy(p->name, chain.name, NAME_LEN);
@@ -252,12 +287,13 @@ static int proj_load(uint32_t slot, int irq)
             ui_message("EMPTY SLOT");
         return 0;
     }
-    if(!pattern_options_valid(&p->options))return 0;
-    for(k=0;k<NTRK;k++)if(!seq_options_valid(&p->seq[k]))return 0;
+    if(!proj_options_valid(p))return 0;
     transport_req = 2;
     if (irq)
         fm1_irq_off();                                  /* the audio ISR must not see half a project */
+    multi_stop();ctlmod_reset();
     song.seq=p->options;
+    song.multi=p->multi;
     mmen_reset_all();
     mmen_lfo_reset();
     mmarp_reset();
@@ -276,6 +312,7 @@ static int proj_load(uint32_t slot, int irq)
             t->p[i] = (int16_t)clamp(proj_value(s,i), d->min, d->max);
         }
         t->seq=p->seq[k];
+        t->perf=p->perf[k];
         t->p[P_MODEL] = (int16_t)m;
         t->model = (uint8_t)m;
         t->pre = (uint16_t)preset_ref(preset_rec_dec(p->pre[k]), m);

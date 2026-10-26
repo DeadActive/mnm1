@@ -31,6 +31,7 @@ typedef struct {
  uint8_t eff[MMA_COUNT];
  const int32_t *mod_q8; /* caller-owned 71 deltas, valid during render/trigger */
  uint8_t note,gate,vel,sounding,slide,let_go,astage,fstage,mach;
+ uint8_t keytrack_off; /* bit0 HP, bit1 LP; mma_init leaves both tracking */
  uint32_t aenv,fenv,bpm;
  int32_t pitch,ptarget,hold,amp0,amp1,gate_left,peak;
  mmc_svf_t eq,lp1,hp2,eqs,lp1s,hp2s;
@@ -363,7 +364,11 @@ static int mma_render(mma_track_t *t,const uint8_t raw[71],unsigned bpm,unsigned
     int32_t sb = mma_p8(t, MMA_BASE) + ob, sl = sb + mma_p8(t, MMA_WDTH) + ow;
     int32_t key = t->note * 8 * 256;
     if (m == MM2_GSIN || m == MM2_GNOI) key += (mma_pb8(t, MMA_SYN + 7) >> 7) * 32;
-    int32_t ph = key + 12 * (sb - 16 * 256), pl = key + 12 * (sl - 16 * 256);
+    /* Fixed C4 is an implementation choice: the manual gives no OFF reference.
+     * Select after TUNE so disabled tracking excludes both note and TUNE. */
+    int32_t hpkey=(t->keytrack_off&1u)?60*8*256:key;
+    int32_t lpkey=(t->keytrack_off&2u)?60*8*256:key;
+    int32_t ph = hpkey + 12 * (sb - 16 * 256), pl = lpkey + 12 * (sl - 16 * 256);
     int lq = mma_p7(t, MMA_LPQ), hq = mma_p7(t, MMA_HPQ);
     mma_coefficients_set(&t->lp1, &t->cached_lp_g, mmc_fg_at(mmc_fg, pl + mmc_lpc[lq]), mmc_lpk[lq]);
     mma_coefficients_set(&t->hp2, &t->cached_hp_g, mmc_fg_at(mmc_fg, ph + mmc_hpc[hq]), mmc_hpk[hq]);

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * MNM3/4/5 migration and compact MNM6 through the real project/storage code. */
+ * MNM3/4/5/6 migration and compact MNM7 through the real project/storage code. */
 #define FELUCCA_FLASH 1
 #include <stdint.h>
 static uint8_t hflash[0x100000];
@@ -10,6 +10,7 @@ static uint8_t hflash[0x100000];
 static mnm_project_v3_t legacy;
 static project_t expected;
 static mnm_project_v5_t recent;
+static mnm_project_v6_t compact;
 static union { project_t q; uint8_t bytes[3840]; } decode_buf;
 
 static void fixture(void)
@@ -25,6 +26,7 @@ static void fixture(void)
         for (i = 0; i < P_COUNT; i++) trk[k].p[i] = TP[i].def;
         drum_set_model(&trk[k], DM_MMSAW);
         seq_options_default(&trk[k].seq);
+        perf_options_default(&trk[k].perf);
         trk[k].p[P_PAN] = -23;
         trk[k].p[P_E7] = -1;
         trk[k].p[P_NOTE] = (int16_t)(k * 2);
@@ -49,6 +51,7 @@ static void fixture(void)
     name_set(chain.name, "OLD SONG");
     song.sel = 4;
     memset(&song.seq,0,sizeof song.seq);
+    multi_options_default(&song.multi);
     project_save(0);
     expected = proj_slot[0];
     memset(&legacy, 0, sizeof legacy);
@@ -127,15 +130,22 @@ static void test_flash(void)
     assert(trk[1].pre == PRE_NFACT + 7u && trk[1].pre_ed == 1);
     trk[2].seq.arp_offset[15]=-17;trk[2].seq.arp_ojmp=5;
     trk[2].seq.swing[7]=3;song.seq.swing=67;song.seq.transpose=-12;
+    trk[2].perf.dest[0]=P_FCUT+1;trk[2].perf.amount[0]=-43;
+    trk[2].perf.route_flags=PERF_HP_OFF|4;
+    song.multi.mode=MULTI_SPLIT;song.multi.split_key=72;song.multi.attack=33;
     project_save(2);
     assert(st_load(OBJ_PROJECT0 + 2u, &saved, sizeof saved) == sizeof saved);
     assert(proj_ok(&saved));
     assert(saved.seq[2].arp_offset[15]==-17 && saved.seq[2].arp_ojmp==5);
     assert(saved.options.swing==67 && saved.options.transpose==-12);
+    assert(saved.perf[2].dest[0]==P_FCUT+1&&saved.perf[2].amount[0]==-43);
+    assert(saved.multi.mode==MULTI_SPLIT&&saved.multi.split_key==72);
     memset(&proj_slot[2], 0, sizeof proj_slot[2]);
     proj_fetch(2);
     assert(!memcmp(&saved, &proj_slot[2], sizeof saved));
     assert(proj_load(2,0));assert(trk[2].seq.arp_offset[15]==-17&&song.seq.swing==67);
+    assert(trk[2].perf.amount[0]==-43&&trk[2].perf.route_flags==(PERF_HP_OFF|4));
+    assert(song.multi.split_key==72&&song.multi.attack==33);
     /* Re-fetch an oversized legacy record between compact neighbors, last slot too. */
     for(k=0;k<4;k++) {
         assert(!st_save(OBJ_PROJECT0+k,&recent,sizeof recent));
@@ -175,11 +185,42 @@ static void test_values_and_validation(void)
     assert(proj_decode(q,sizeof recent));
     assert(proj_value(&q->t[1],P_PAN)==-64 && proj_value(&q->t[1],P_MVOL)==127);
     assert(proj_value(&q->t[1],P_E7)==64);
-    printf("MNM6 %zu bytes; project/chain union %zu bytes\n",sizeof(project_t),sizeof proj_memory);
+    printf("MNM7 %zu bytes; project/chain union %zu bytes\n",sizeof(project_t),sizeof proj_memory);
+}
+static void test_mnm6(void)
+{
+    assert(sizeof compact==3456);
+    memcpy(&compact,&expected,__builtin_offsetof(mnm_project_v6_t,sum));
+    compact.magic=PROJ_V6_MAGIC;compact.size=sizeof compact;
+    compact.t[2].step[9].rsv=ST_NOPITCH|ST_NOAMP;
+    compact.seq[2][0]=0x71; /* swing mask: verify old options survive unchanged */
+    compact.sum=proj_hash(&compact,sizeof compact-4);
+    project_t *q=&decode_buf.q;
+    memset(&decode_buf,0xA5,sizeof decode_buf);memcpy(q,&compact,sizeof compact);
+    assert(proj_decode(q,sizeof compact)&&proj_ok(q));
+    assert(q->seq[2].swing[0]==0x71&&q->t[2].step[9].rsv==(ST_NOPITCH|ST_NOAMP));
+    perf_options_t empty={0};multi_options_t def;multi_options_default(&def);
+    for(unsigned k=0;k<NTRK;k++)assert(!memcmp(&q->perf[k],&empty,sizeof empty));
+    assert(!memcmp(&q->multi,&def,sizeof def));
+    for(unsigned i=0;i<sizeof compact;i++) {
+        memcpy(q,&compact,sizeof compact);decode_buf.bytes[i]^=1;
+        assert(!proj_decode(q,sizeof compact));
+    }
+    memcpy(q,&compact,sizeof compact);assert(!proj_decode(q,sizeof compact-1));
+    assert(!proj_decode(q,sizeof compact+1));
+    flash_ok=1;assert(!st_save(OBJ_PROJECT0+3,&compact,sizeof compact));
+    proj_fetch(3);assert(proj_ok(&proj_slot[3])&&proj_slot[3].seq[2].swing[0]==0x71);
+    *q=expected;q->perf[0].route_flags=7;q->sum=proj_sum(q);assert(!proj_decode(q,sizeof *q));
+    *q=expected;q->perf[0].amount[1]=-65;q->sum=proj_sum(q);assert(!proj_decode(q,sizeof *q));
+    *q=expected;q->perf[0].dest[0]=P_MODEL+1;q->sum=proj_sum(q);assert(!proj_decode(q,sizeof *q));
+    *q=expected;q->multi.first_upper=6;q->sum=proj_sum(q);assert(!proj_decode(q,sizeof *q));
+    *q=expected;q->multi.mode=5;q->sum=proj_sum(q);assert(!proj_decode(q,sizeof *q));
+    *q=expected;q->multi.attack=128;q->sum=proj_sum(q);assert(!proj_decode(q,sizeof *q));
+    *q=expected;q->multi.mode=MULTI_SPLIT;q->sum^=1;assert(!proj_decode(q,sizeof *q));
 }
 int main(void)
 {
-    fixture(); test_decode(); test_flash();test_values_and_validation();
+    fixture(); test_decode(); test_flash();test_values_and_validation();test_mnm6();
     puts("project_migration_test: all passed");
     return 0;
 }

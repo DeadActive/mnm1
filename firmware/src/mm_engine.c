@@ -73,19 +73,28 @@ static mma_track_t *mmen_prepare(track_t *t) {
   int16_t *b=k<NTRK?fxb[k]:mmen_scratch;
   mma_init(&mmen_state[k],k,m,b,b+1024);mmen_ready[k]=1;
  }
+ mmen_state[k].keytrack_off=(t->perf.route_flags>>3)&3u;
  mma_modulation(&mmen_state[k],k<NTRK?mmen_delta[(CTL+15)/16-1][k]:0);
  return &mmen_state[k];
 }
+static void mmen_multi_fraction(track_t *t,mma_track_t *s)
+{
+ int fraction=seq_multi_pitch(t)%16*4;
+ int same=s->pitch==s->ptarget;s->ptarget+=fraction;if(same)s->pitch+=fraction;
+}
 static void mmen_trigger(track_t *t,dvoice_t *v) {
  mma_track_t *s=mmen_prepare(t);uint8_t raw[71];if(!s)return;
- mm_controls_get(t,raw);mma_trigger(s,raw,(unsigned)seq_note(t),v->vel,0,-1);
+ t->multi_pitch_ref=(int16_t)seq_multi_pitch(t);
+ mm_controls_get(t,raw);mma_trigger(s,raw,(unsigned)seq_note(t),v->vel,0,-1);mmen_multi_fraction(t,s);
  v->active=1;v->t=0;
 }
 static void mmen_trigger_mask(track_t *t,dvoice_t *v,unsigned velocity,unsigned flags) {
  mma_track_t *s=mmen_prepare(t);uint8_t raw[71];if(!s)return;
  mm_controls_get(t,raw);
  int32_t pitch=s->pitch,target=s->ptarget;uint8_t note=s->note,slide=s->slide;
+ if((flags&(ST_NOAMP|ST_NOPITCH))!=(ST_NOAMP|ST_NOPITCH))t->multi_pitch_ref=(int16_t)seq_multi_pitch(t);
  mma_trigger_mask(s,raw,(unsigned)seq_note(t),velocity,0,-1,flags&(ST_NOAMP|ST_NOFLT));
+ if((flags&(ST_NOAMP|ST_NOPITCH))!=(ST_NOAMP|ST_NOPITCH))mmen_multi_fraction(t,s);
  if((flags&(ST_NOAMP|ST_NOPITCH))==(ST_NOAMP|ST_NOPITCH)){
   s->pitch=pitch;s->ptarget=target;s->note=note;s->slide=slide;
  }
@@ -102,7 +111,8 @@ static void mmen_idle_filter(track_t *t,unsigned n) {
 static void mmen_glide(track_t *t,dvoice_t *v) {
     t->trig_nt=t->nt;
  mma_track_t *s=mmen_prepare(t);uint8_t raw[71];if(!s)return;
- mm_controls_get(t,raw);mma_trigger(s,raw,(unsigned)seq_note(t),v->vel,1,-1);
+ t->multi_pitch_ref=(int16_t)seq_multi_pitch(t);
+ mm_controls_get(t,raw);mma_trigger(s,raw,(unsigned)seq_note(t),v->vel,1,-1);mmen_multi_fraction(t,s);
  v->active=1;v->t=0;
 }
 static void mmen_gate(track_t *t,dvoice_t *v,int open) {
@@ -120,6 +130,8 @@ static void mmen_render(track_t *t,dvoice_t *v,int32_t *out,uint32_t n) {
   mmen_pre[k][i]=mmen_post[k][i]=0;
  }
  if(!s)return;
+ int shift=seq_multi_pitch(t)-t->multi_pitch_ref;
+ if(shift){s->pitch+=shift*4;s->ptarget+=shift*4;t->multi_pitch_ref=(int16_t)seq_multi_pitch(t);}
  mm_controls_get(t,raw);
  for(unsigned off=0;off<n;off+=16) {
   int16_t input[16],carrier[16];int32_t l[16],r[16],ds[16],rs[16];

@@ -63,10 +63,20 @@ static void flt_cuts_at(const track_t *t, int32_t ev, int32_t *hc, int32_t *lc) 
 {
     int32_t b = clamp(t->p[P_FCUT], 0, 127) * 256 + ((clamp(t->p[P_FENV], -64, 63) * 256 * ev) >> 15);
     int32_t w = clamp(t->p[P_FWDTH], 0, 127) * 256 + ((clamp(t->p[P_FWOFS], -64, 63) * 256 * ev) >> 15);
-    int32_t x = (flt_key16(t) - 1104) * 32 + b * 3;     /* octaves from A4, 6144 an octave */
+    int32_t key=flt_key16(t);
+    /* The manual does not specify the fixed reference; OFF uses MIDI C4,
+     * independently for each stage, without the played note or TUNE. */
+    int32_t hk=(t->perf.route_flags&PERF_HP_OFF)?60*16:key;
+    int32_t lk=(t->perf.route_flags&PERF_LP_OFF)?60*16:key;
+    int32_t x = (hk - 1104) * 32 + b * 3;     /* octaves from A4, 6144 an octave */
     x *= FLT_OCT;
     *hc = 6726 + (x >= 0 ? x / 6144 : -((-x + 6143) / 6144));   /* (floored: an octave of note or BASE exactly FLT_OCT) */
-    *lc = *hc + (w > 0 ? w : 0) * FLT_OCT / 2048;
+    int32_t lowbase=*hc;
+    if(lk!=hk) {
+        x=((lk-1104)*32+b*3)*FLT_OCT;
+        lowbase=6726+(x>=0?x/6144:-((-x+6143)/6144));
+    }
+    *lc = lowbase + (w > 0 ? w : 0) * FLT_OCT / 2048;
 }
 static void flt_cuts(const track_t *t, int32_t *hc, int32_t *lc)
 {

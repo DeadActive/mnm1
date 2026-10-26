@@ -39,6 +39,10 @@ static int mmlib_read(unsigned id,void *out,unsigned bytes)
             p->options=(pattern_options_t){0};p->version=MMR_PATTERN_VERSION;n=(int)bytes;
         }else if(n!=(int)bytes||p->version!=MMR_PATTERN_VERSION)return MMS_CORRUPT;
     }
+    if(id>=8&&id<16&&n>0){
+        if(!mmr_group_upgrade(out,(unsigned)n,id<12))return MMS_CORRUPT;
+        n=(int)bytes;
+    }
     return n==(int)bytes?0:n<0?mmlib_error(n):MMS_CORRUPT;
 }
 static int mmlib_read_kits(unsigned group)
@@ -273,13 +277,14 @@ static int mmlib_project_kit(mmr_kit_t *kit,const project_t *p)
     memset(kit,0,sizeof *kit);kit->used=1;
     char name[NAME_LEN+1];proj_name_get(name,p->name);mmr_name_copy(kit->name,sizeof kit->name,name);
     for(unsigned t=0;t<NTRK;++t){
-        mmr_sound_t *s=&kit->sound[t];s->used=1;s->preset_ref=p->pre[t];s->edited=p->pre_ed[t];
+        mmr_sound_t *s=&kit->sound[t];s->used=1;mmr_preset_set(s,p->pre[t]);s->edited=p->pre_ed[t];s->perf=p->perf[t];
         for(unsigned id=0;id<P_COUNT;++id)if(mmr_sound_param(id)){
             int v=proj_value(&p->t[t],id);
             if(v< -128||v>127)return MMS_CORRUPT;s->p[id]=(uint8_t)v;
         }
         for(unsigned j=0;j<MMR_KIT_N;++j)kit->config[t][j]=proj_value(&p->t[t],MMR_KIT_PARAMS[j]);
     }
+    kit->multi=p->multi;
     return mmr_kit_valid(kit)?0:MMS_CORRUPT;
 }
 static int mmlib_project_pattern(mmr_pattern_t *out,const project_t *p,unsigned kit)
@@ -317,7 +322,7 @@ static int library_migrate_legacy(void)
         for(unsigned i=0;i<32;++i){
             unsigned slot=group*32+i;const upr_slot_t *old=&upr.s[slot];
             if(upr.magic!=UPR_MAGIC || old->used!=1 || old->model>=MM_MODEL_FIRST)continue;
-            mmr_sound_t *s=&mmlib_work.sounds.sound[i];s->used=1;s->preset_ref=(uint16_t)(0x8000u|slot);
+            mmr_sound_t *s=&mmlib_work.sounds.sound[i];s->used=1;mmr_preset_set(s,0x8000u|slot);
             for(unsigned id=0;id<P_COUNT;++id)if(mmr_sound_param(id))s->p[id]=(uint8_t)TP[id].def;
             s->p[P_MODEL]=old->model;
             for(unsigned k=0;k<8;++k)s->p[P_E0+k]=(uint8_t)old->k[k];

@@ -3,12 +3,13 @@
  * Pattern data stays unchanged. SCALE and KEY belong to the track. */
 #ifndef MNM_SEQ_TRANSPOSE_H
 #define MNM_SEQ_TRANSPOSE_H
+static int seq_multi_pitch(const track_t *t){return (t->seq.scale_key>>4)==1?0:song.multi_pitch16;}
 /* Keep scale quantization out of legacy DSP multiply scheduling windows. */
 static __attribute__((noinline)) int seq_note(const track_t *t)
 {
     unsigned scale=t->seq.scale_key>>4,key=(t->seq.scale_key&15u)%12u;
     int note=60+t->nt+t->seq.transpose;
-    if(scale!=1)note+=song.seq.transpose; /* FIX ignores pattern transpose. */
+    if(scale!=1)note+=song.seq.transpose+seq_multi_pitch(t)/16; /* FIX ignores pattern transpose. */
     if(note<0)note=0;
     if(note>127)note=127;
     if(scale==2||scale==3){

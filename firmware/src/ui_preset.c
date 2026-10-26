@@ -67,7 +67,7 @@ static void pl_restore(void)
     if (!ui.pr.pv)
         return;
     ui.pr.pv = 0;
-    preset_put_full(&trk[ui.pr.pv_trk % NTRK], ui.pr.sv_k, ui.pr.sv_pre, ui.pr.sv_ed);
+    preset_put_full(&trk[ui.pr.pv_trk % NTRK], ui.pr.sv_k, ui.pr.sv_pre, ui.pr.sv_ed, &ui.pr.sv_perf);
 }
 
 /* the preset under the cursor on the selected track for now: MODEL and the 8 knobs as a load (presets.c preset_apply:
@@ -96,6 +96,7 @@ static void pl_audition(uint32_t hit, uint32_t key)
             ui.pr.sv_k[i] = (mo.base_ok >> k) & 1u ? mo.base[k][i] : t->p[i];
         ui.pr.sv_pre = t->pre;
         ui.pr.sv_ed = t->pre_ed;
+        ui.pr.sv_perf = t->perf;
     }
     preset_apply(t, &p, ui.pr.cur);                    /* (another voice: no full redraw, the list is its own
                                                         * screen; its pages are drawn anew as it closes) */

@@ -61,6 +61,7 @@ static void motion_mark(uint32_t k, uint32_t id) { mo.act[k][id >> 5] |= 1u << (
 /* knob id of t as it rests: an LFO on it this block keeps that in lsave (lfo.c), else t->p */
 static int16_t *motion_slot(track_t *t, uint32_t id)
 {
+    int16_t *base=ctlmod_base_slot(t,id);if(base)return base;
     uint32_t i;
     for (i = 0; i < t->lnum; i++)
         if (t->lpid[i] == id)
@@ -93,6 +94,7 @@ static void motion_restore_keep(uint32_t k, int keep)   /* the moved knobs back 
             *motion_slot(&trk[k], id) = mo.base[k][id];
             mo.act[k][id >> 5] &= ~(1u << (id & 31u));
         }
+    ctlmod_refresh(&trk[k]);
 }
 static void motion_restore(uint32_t k)            /* the moved knobs back to the base, the glides stopped */
 {
@@ -186,21 +188,20 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t s)
             }
         }
     }
-    if (moved && t->lnum && song.lfo_in) {         /* an LFO holds a knob this block: its copy from the new value, */
-        lfo_restore_track(t);                       /* so this step's hit reads it (as lfo_hit does) */
-        lfo_track(t, 0);
-    }
+    if (moved)ctlmod_refresh(t);
 }
 
 /* every block (seq.c events_block, before the steps): the glides n samples on */
 static void motion_slide_block(uint32_t n)
 {
     uint32_t k, j;
-    for (k = 0; k < NTRK; k++)
+    for (k = 0; k < NTRK; k++) {
+        unsigned changed=0;
         for (j = 0; j < MO_SL; j++) {
             motion_slide_t *g = &mo.sl[k][j];
             if (!g->on)
                 continue;
+            changed=1;
             g->at = g->at + n < g->len ? g->at + n : g->len;
             {                                       /* (the fraction in 32 bits: the target links no 64-bit
                                                      * division, __divdi3 / __udivdi3) */
@@ -216,6 +217,8 @@ static void motion_slide_block(uint32_t n)
             if (g->at >= g->len)
                 g->on = 0;
         }
+        if(changed)ctlmod_refresh(&trk[k]);
+    }
 }
 
 /* ---- the IRQ off (callers) */

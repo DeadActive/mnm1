@@ -5,6 +5,17 @@ own history is in its repository.
 
 ## Unreleased
 
+## 0.11.0 - 2026-10-26
+
+- Add chained TRIG POS routing with cycle protection and note ownership, so an older source release cannot cut a newer independent note.
+- Add MULTI ALL/SPLIT/START/TRANS modes, a selectable MIDI channel (default 7), panel keyboard input, quantized sequence changes, shared ADSR and portamento. Keep individual arpeggiators in ALL mode and handle overlapping MIDI/panel notes.
+- Add two velocity and two keytrack destinations per sound, composed with parameter locks, slides and LFOs without changing stored bases. Generated ARP notes retain the last input key and velocity.
+- Add independent HP/LP keytracking switches. OFF uses a fixed C4 reference; controller response, envelope/portamento curves and this reference are documented interpretations, not newly measured hardware laws.
+- Preserve full performance settings in MNM7 projects and version-two full sounds/kits; older records load with disabled/default options. Loading a kit clears performance runtime, and cancelling sound audition restores the full sound.
+- Make mixer level bars readable with an empty outlined background, solid level fill and the existing peak marker.
+- Isolate RING's rounded multiplies from target load scheduling hazards while preserving its sample arithmetic.
+- The earlier 0.10 hardware stress run recorded a timer-return exception. All 187 cases have measurements across two runs; this does not establish uninterrupted device stability or remove CPU limits on heavy combinations.
+
 ## 0.10.0 - 2026-10-26
 
 - Add pattern swing amount and per-track 64-step swing masks; preserve the existing swing law for older projects. Keep fractional timing and nominal SONG row boundaries.

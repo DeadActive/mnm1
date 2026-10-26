@@ -205,6 +205,36 @@ account for compact byte parameters and twelve division choices; the UI page
 coverage mask was widened to 64 bits to avoid an invalid shift on added pages.
 The simulator build and glue tests pass. Standard target image is 545432 bytes;
 Mac package SHA-256 is 3705bafb2a0938a92d52b0bcdcc6d94e4dcce0966a79eb97e7f11f6bd622e44b.
-It is installed on FM-1; the complete 187-case hardware run is in progress with
-incremental output at build/bench/0.10.0/device.log. Public site publication awaits
-that run and an archive built from the committed source. 0.11 and 1.0 remain.
+It is installed on FM-1. The 187-case hardware run stopped after case 136 (137 results);
+50 cases remain untested in this run. The device rebooted (boots 7 to 8, crash count 1 to 2).
+The new exception has vector 1, reported PC 0x0000070C, RETS 0x01C155EC, DBG 0x00080000,
+SP 0x01C7BC68. Cause is under investigation; this is not a passed full-device test.
+Evidence: build/bench/0.10.0/device.log, after-timeout.txt and crash-raw.txt.
+The 0.10 site, matching simulator/source archive and verified package were published
+from source commit 626a936 (Pages commit 968b8a6), explicitly marked beta. 0.11 and 1.0 remain.
+
+
+The remaining 50 cases (137–186) completed in diagnostic build 0.10.2 without a
+new crash or reboot. CPU1 completed 89,440 jobs, max job 1,272 us, max wait 8 us,
+zero timeouts, 2,276 bytes of user-stack headroom. This is a segmented measurement,
+not a passed uninterrupted regression: the earlier timer-return exception remains
+unresolved. The diagnostic only changes the benchmark start and crash capture;
+its SHA-256 is f56456e7f4bb31cf6376be0a83e3096b96ae92c29d63df1e36dcfba74c730471.
+Evidence: build/bench/0.10.0/tail-diag.log and segmented-report.md.
+Expanded crash-frame fields in this run are invalid: the retained record predates
+the expanded layout; crash count did not change during the diagnostic run.
+
+0.11 work in progress: MNM7 projects (3520 bytes), version-two full sounds
+(119 bytes) and kits preserve old readers and new performance/MULTI settings.
+Migration, record round trips and interrupted saves pass host sanitizer tests.
+The mixer level meter now has an empty outlined background and solid level fill;
+its peak-marker partial redraw is tested. These changes are not yet in the public
+0.10 firmware.
+
+The 0.11 target candidate passes link and instruction checks: image 554524 bytes,
+data/BSS 96736 of 98304, pool 335264 of 344064. RING uses isolated rounded products;
+the final scan reports 770 wide multiplies, 272 inherited hazards and no new ones.
+Package SHA-256: 33d39148970eeb7586a23b3fd8c661b9d7ddd9cb0f3287f7c2b43bd07511e4d3.
+This scan is not a fix or proof of the earlier interrupt-return failure.
+Performance, controller/lock/LFO composition, note ownership, filter tracking,
+project conversion and transactional record tests pass with host sanitizers.

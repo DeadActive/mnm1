@@ -51,7 +51,7 @@ static uint32_t acid_inc(int32_t p16)                   /* pitch in 1/16 semiton
 }
 static int32_t acid_pitch(const track_t *t)             /* the target: C4 + the note + TUNE, 1/16 semitone */
 {
-    return (seq_note(t) + t->p[P_E0]) * 16;
+    return (seq_note(t) + t->p[P_E0]) * 16 + seq_multi_pitch(t)%16;
 }
 static uint32_t acid_decay(int32_t p)                   /* DECAY 0..127 -> DECAY_K 34..121: 30 ms .. 3 s to -60 dB */
 {
@@ -64,6 +64,7 @@ static void acid_trigger(track_t *t, dvoice_t *v)
     const int16_t *p = &t->p[P_E0];
     int32_t acc = v->vel > 110u ? clamp(p[5], 0, 127) * 258 : 0;   /* ACCNT (Q15) on an accented note */
     v->x[0] = v->x[1] = acid_pitch(t);
+    t->multi_pitch_ref=(int16_t)seq_multi_pitch(t);
     v->x[2] = 1 | (p[6] ? 4 : 0);                         /* the gate open, the attack running; WAVE */
     v->x[3] = acc;
     v->ph[0] = 0;
@@ -79,7 +80,9 @@ static void acid_glide(track_t *t, dvoice_t *v)          /* slide: a new target,
 {
     t->trig_nt=t->nt;
     const int16_t *p = &t->p[P_E0];
+    v->x[0]+=seq_multi_pitch(t)-t->multi_pitch_ref;
     v->x[1] = acid_pitch(t);
+    t->multi_pitch_ref=(int16_t)seq_multi_pitch(t);
     v->t = 0;                                            /* a new note: its lifetime starts */
     v->x[3] = v->vel > 110u ? clamp(p[5], 0, 127) * 258 : 0;   /* the slid-to step's accent, or none */
     if (v->x[3])
@@ -123,7 +126,7 @@ static void acid_render(track_t *t, dvoice_t *v, int32_t *out, uint32_t n)
         int32_t s = (int32_t)(((int64_t)d * ACID_GLIDE + (1 << 23)) >> 24);
         v->x[0] += s ? s : d > 0 ? 1 : -1;
     }
-    inc = acid_inc(v->x[0]);
+    inc = acid_inc(v->x[0]+seq_multi_pitch(t)-t->multi_pitch_ref);
     /* the ladder's coefficients at the block's end (the filter envelope n samples on: DECAY^n, n a power of two as
      * CTL) and the output gain (velocity x voice level x gain x the accent, <= 122332); each ramps from where the
      * last block ended (a new voice: from its value now) */

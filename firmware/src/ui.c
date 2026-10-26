@@ -128,6 +128,7 @@ static struct {
         uint8_t sv_model, sv_ed; /* .. that sound: MODEL, the 8 SOUND knobs (motion's base while it plays), the preset */
         uint16_t sv_pre;         /*    and its edited mark, put back unless LOAD keeps the audition */
         int16_t sv_k[P_COUNT];
+        perf_options_t sv_perf;
     } pr;
 } ui;
 

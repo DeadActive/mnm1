@@ -109,6 +109,11 @@ static void boot_format_migrate(void)
         assert(preset_rec_enc(trk[0].pre)==(0x8000u|slot));
     }
 }
+static void performance_values(void)
+{
+ trk[0].perf=(perf_options_t){.dest={P_E0+1,P_FCUT+1,P_PTCH+1,P_EQG+1},.amount={-64,63,-17,31},.route_flags=6|PERF_HP_OFF};
+ song.multi=(multi_options_t){4,72,2,7,19,31,87,127,42};
+}
 static void saves_and_groups(void)
 {
     assert(library_load_pattern(0)==0);
@@ -153,17 +158,17 @@ static void failed_loads(void)
 static void pattern_save_cuts(void)
 {
     memcpy(libflash,ready_flash,sizeof libflash);io_reset();assert(library_boot(libio)==0);
-    assert(library_load_pattern(0)==0);trk[0].p[P_E0]=9;song.g[G_BPM]=211;
+    assert(library_load_pattern(0)==0);trk[0].p[P_E0]=9;song.g[G_BPM]=211;performance_values();
     writes=0;assert(library_save_pattern(0,0)==0);unsigned total=writes;
     for(unsigned cut=1;cut<=total;++cut){
         memcpy(libflash,ready_flash,sizeof libflash);io_reset();assert(library_boot(libio)==0);
-        assert(library_load_pattern(0)==0);trk[0].p[P_E0]=9;song.g[G_BPM]=211;
+        assert(library_load_pattern(0)==0);trk[0].p[P_E0]=9;song.g[G_BPM]=211;performance_values();
         live_snapshot();writes=0;fail_write=cut;assert(library_save_pattern(0,0)!=0);live_unchanged();
         io_reset();assert(library_boot(libio)==0);assert(library_load_pattern(0)==0);
-        assert(trk[0].p[P_E0]==0&&song.g[G_BPM]==100);
-        trk[0].p[P_E0]=9;song.g[G_BPM]=211;assert(library_save_pattern(0,0)==0);
+        assert(trk[0].p[P_E0]==0&&song.g[G_BPM]==100);assert(!trk[0].perf.route_flags&&!song.multi.mode);
+        trk[0].p[P_E0]=9;song.g[G_BPM]=211;performance_values();assert(library_save_pattern(0,0)==0);
         io_reset();assert(library_boot(libio)==0);assert(library_load_pattern(0)==0);
-        assert(trk[0].p[P_E0]==9&&song.g[G_BPM]==211);
+        assert(trk[0].p[P_E0]==9&&song.g[G_BPM]==211);assert(trk[0].perf.route_flags==(6|PERF_HP_OFF)&&song.multi.mode==4&&song.multi.portamento==42);
         assert(library_load_pattern(1)==0&&song.g[G_BPM]==101); /* other kit in same object survives */
     }
     /* Semantic corruption with correct flash CRC must still be rejected before
@@ -267,9 +272,50 @@ static void migration_cuts(void)
     for(unsigned i=0;i<128;++i)assert(!library_sound_metadata(i)->used);
     for(unsigned i=0;i<8;++i)assert(!library_pattern_metadata(i)->used&&!library_kit_metadata(i)->used);
 }
+static void version_one_and_performance(void)
+{
+ static struct {uint16_t version,reserved;mmr_sound_v1_t sound[32];} old_sounds;
+ static struct {uint16_t version,reserved;mmr_kit_v1_t kit[2];} old_kits;
+ static mmr_sound_t captured;static mmr_kits_t current;
+ memcpy(libflash,ready_flash,sizeof libflash);io_reset();assert(library_boot(libio)==0);
+ assert(library_load_kit(0)==0);assert(mmr_sound_capture(&captured,&trk[0],"OLD"));
+ old_sounds.version=1;
+ for(unsigned i=0;i<32;i++){
+  memcpy(&old_sounds.sound[i],&captured,110);snprintf(old_sounds.sound[i].name,9,"OLD%02u",i);
+  old_sounds.sound[i].preset_ref=(uint16_t)(0x8000u+i);old_sounds.sound[i].p[P_LEVEL]=(uint8_t)(64+i);
+ }
+ assert(mmlib_read(8,&current,sizeof current)==0);old_kits.version=1;
+ for(unsigned i=0;i<2;i++){
+  memcpy(&old_kits.kit[i],&current.kit[i],98);
+  for(unsigned k=0;k<6;k++)memcpy(&old_kits.kit[i].sound[k],&current.kit[i].sound[k],110);
+ }
+ assert(!mms_stage(&mmlib_store,12,&old_sounds,sizeof old_sounds));assert(!mms_stage(&mmlib_store,8,&old_kits,sizeof old_kits));assert(!mms_commit(&mmlib_store));
+ io_reset();assert(!library_boot(libio));assert(!writes);
+ for(unsigned i=0;i<32;i++){
+  assert(!library_load_sound(i,&trk[0]));assert(trk[0].p[P_LEVEL]==64+(int)i&&!trk[0].perf.route_flags);
+  assert(!strcmp(library_sound_metadata(i)->name,old_sounds.sound[i].name));
+ }
+ assert(!mmlib_read(12,&mmlib_work.sounds,sizeof mmlib_work.sounds));
+ for(unsigned i=0;i<32;i++)assert(mmr_preset_ref(&mmlib_work.sounds.sound[i])==0x8000u+i);
+ multi_options_t dm;multi_options_default(&dm);
+ for(unsigned i=0;i<2;i++){assert(!library_load_kit(i));assert(!memcmp(&song.multi,&dm,sizeof dm));assert(!strcmp(library_kit_metadata(i)->name,old_kits.kit[i].name));}
+ assert(!writes);performance_values();perf_options_t wanted=trk[0].perf;multi_options_t wanted_multi=song.multi;
+ assert(!library_save_sound(31,&trk[0],"NEWPERF"));assert(!library_save_kit(1));
+ io_reset();assert(!library_boot(libio));assert(!library_load_sound(31,&trk[2]));assert(!memcmp(&trk[2].perf,&wanted,sizeof wanted));
+ assert(!library_load_sound(30,&trk[2]));assert(!trk[2].perf.route_flags&&trk[2].p[P_LEVEL]==94);
+ assert(!library_load_kit(1));assert(!memcmp(&trk[0].perf,&wanted,sizeof wanted)&&!memcmp(&song.multi,&wanted_multi,sizeof wanted_multi));
+ assert(!library_load_kit(0));assert(!trk[0].perf.route_flags&&!song.multi.mode);
+ for(unsigned kind=0;kind<2;kind++)for(unsigned bad=0;bad<3;bad++){
+  memcpy(libflash,ready_flash,sizeof libflash);io_reset();assert(!library_boot(libio));
+  void *group=kind?(void*)&old_kits:(void*)&old_sounds;unsigned len=kind?sizeof old_kits:sizeof old_sounds;
+  ((uint16_t*)group)[0]=bad==0?99:1;((uint16_t*)group)[1]=bad==2?1:0;
+  assert(!mms_stage(&mmlib_store,kind?8:12,group,len-(bad==1)));assert(!mms_commit(&mmlib_store));
+  live_snapshot();io_reset();assert(library_boot(libio)==MMS_CORRUPT);assert(!writes);live_unchanged();
+ }
+}
 int main(void)
 {
-    legacy_fixture();boot_format_migrate();saves_and_groups();failed_loads();pattern_save_cuts();metadata_and_renames();migration_cuts();
+    legacy_fixture();boot_format_migrate();saves_and_groups();failed_loads();pattern_save_cuts();metadata_and_renames();version_one_and_performance();migration_cuts();
     printf("library: migration/full records/group preservation/read failures/bounds passed; scratch=%zu metadata=%zu\n",sizeof mmlib_work+sizeof mmlib_kits,sizeof mmlib_sounds+sizeof mmlib_patterns+sizeof mmlib_kit_names);
     return 0;
 }

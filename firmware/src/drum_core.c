@@ -5,7 +5,16 @@
  * (track_render). A cut voice is not dropped: its last sample decays in dtail. */
 
 static uint32_t dvage;                                   /* hit counter: voice ages, noise seeds */
+static uint8_t route_owner[NTRK];
+static void route_release(track_t *t);
 static uint8_t safe_start;                            /* SEQ held at power-on: no drum audio (drum_boot_init) */
+
+static uint8_t arp_self;
+#include "controller_mod.h"
+#include "multi_runtime.h"
+static multi_runtime_t multi __attribute__((section(".pool")));
+static uint8_t multi_owner[NTRK],multi_dispatching;
+
 
 /* power-on kit (a new project, TOOLS INIT ALL too): MNM-1's six tracks, routed as a kit of synth and FX machines: a GND kick; a
  * metallic FM+ snare ("CLING", after SOPHIE's snares: inharmonic FM, short, high-passed) heard only through
@@ -89,6 +98,7 @@ static void dv_cut(track_t *t, dvoice_t *v)
 
 static void drum_cut(track_t *t)                         /* every voice of t, with the declick tail */
 {
+    route_release(t);
     uint32_t i;
     for (i = 0; i < NDV; i++)
         dv_cut(t, &t->v[i]);
@@ -199,7 +209,7 @@ static int trk_silent(const track_t *t)
 static void arp_note(track_t *t, int glide);             /* arp.c */
 
 /* one hit of track t at velocity vel (1..127), playing note nt (an offset from C4) */
-static void drum_play_masked(track_t *t, uint32_t vel, int32_t nt,unsigned flags)
+static void drum_play_event(track_t *t, uint32_t vel, int32_t nt,unsigned flags)
 {
     const dmodel_t *m = trk_model(t);
     uint32_t i, nv = m->voices < NDV ? m->voices : NDV;
@@ -240,6 +250,69 @@ static void drum_play_masked(track_t *t, uint32_t vel, int32_t nt,unsigned flags
         dv_init(v, vel);
         if(flags&&mmen_is_model(t->model))mmen_trigger_mask(t,v,vel,flags);
         else m->trigger(t, v);
+    }
+}
+static uint32_t hit_gate_len(const track_t *t);
+static unsigned route_mask(unsigned source)
+{
+    unsigned mask=0;
+    while(source<NTRK&&!(mask&(1u<<source))){
+        mask|=1u<<source;unsigned next=trk[source].perf.route_flags&7u;
+        if(!next||next>NTRK)break;source=next-1;
+    }
+    return mask;
+}
+/* Last-note ownership prevents an old source release from cutting a newer note. */
+static void route_release(track_t *t)
+{
+    unsigned source=ctlmod_index(t);if(source==NTRK)return;
+    for(unsigned k=0;k<NTRK;k++)if(k!=source&&route_owner[k]==source+1){
+        track_t *target=&trk[k];const dmodel_t *m=trk_model(target);
+        route_owner[k]=0;target->gate_n=0;target->rat_n=0;target->slide_in=0;
+        if(m->gate&&target->v[0].active)m->gate(target,&target->v[0],0);
+    }
+}
+static void drum_play_one(track_t *t,uint32_t vel,int32_t nt,unsigned flags)
+{
+    unsigned index=ctlmod_index(t);
+    if(index<NTRK&&!multi_dispatching&&!arp_self)multi_owner[index]=0;
+    int temporary=ctlmod_note_begin(t,vel,(flags&ST_NOPITCH)?t->trig_nt:nt,flags);
+    drum_play_event(t,vel,nt,flags);
+    ctlmod_note_end(t,temporary);
+}
+static unsigned drum_play_routes(unsigned roots,uint32_t vel,int32_t nt,unsigned flags)
+{
+    unsigned visited=0;
+    for(unsigned source=0;source<NTRK;source++)if(roots&(1u<<source)){
+        unsigned mask=route_mask(source)&~visited;visited|=mask;
+        for(unsigned k=0;k<NTRK;k++)if(mask&(1u<<k)){
+            track_t *target=&trk[k];
+            drum_play_one(target,vel,nt,flags);route_owner[k]=(uint8_t)(source+1);
+            if(k!=source&&!(flags&(ST_NOAMP|ST_NOTEOFF))&&trk_model(target)->gate){
+                target->gate_n=trk_model(&trk[source])->gate?0:hit_gate_len(target);
+                target->slide_in=0;
+            }
+        }
+    }
+    return visited;
+}
+static void drum_play_masked(track_t *t,uint32_t vel,int32_t nt,unsigned flags)
+{
+    unsigned k=ctlmod_index(t);
+    if(flags&ST_NOTEOFF){route_release(t);drum_play_one(t,vel,nt,flags);return;}
+    if(k==NTRK){drum_play_one(t,vel,nt,flags);return;}
+    if(!(t->perf.route_flags&7u)){
+        drum_play_one(t,vel,nt,flags);route_owner[k]=(uint8_t)(k+1);return;
+    }
+    drum_play_routes(1u<<k,vel,nt,flags);
+}
+static void drum_forward_note(track_t *t,uint32_t vel,int32_t nt)
+{
+    unsigned source=ctlmod_index(t);if(source==NTRK)return;
+    unsigned mask=route_mask(source)&~(1u<<source);
+    for(unsigned k=0;k<NTRK;k++)if(mask&(1u<<k)){
+        drum_play_one(&trk[k],vel,nt,0);route_owner[k]=(uint8_t)(source+1);
+        trk[k].gate_n=0;trk[k].slide_in=0;
     }
 }
 static void drum_play(track_t *t,uint32_t vel,int32_t nt){drum_play_masked(t,vel,nt,0);}
@@ -376,6 +449,11 @@ static void drum_tracks_init(void)
         song.g[i] = GP[i].def;
     song.act[G_KSLOT-G_COUNT]=1;
     song.seq=(pattern_options_t){0};
+    multi_options_default(&song.multi);
+    ctlmod_reset();
+    memset(&multi,0,sizeof multi);memset(multi_owner,0,sizeof multi_owner);
+    song.multi_pitch16=0;multi_dispatching=0;
+    memset(route_owner,0,sizeof route_owner);
     for (k = 0; k < NTRK; k++) {
         track_t *t = &trk[k];
         memset(t, 0, sizeof *t);

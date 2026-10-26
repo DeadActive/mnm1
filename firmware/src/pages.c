@@ -8,7 +8,7 @@
  * EDIT: SYNTH (SELECT picks the machine), AMP, then TRACK (machine, note, routing, the shared buses' sends); ENV:
  * FILTER; FX: EFFECTS, then the SLICER and the shared buses; LFO: LFO 1, 2, 3; ARP: the arpeggiator. */
 enum { FAM_HOME, FAM_SND, FAM_ENV, FAM_FX, FAM_SEQ, FAM_GLO, FAM_SAVE, FAM_GRIDS, FAM_LFO, FAM_MIX, FAM_COUNT };
-enum { SC_TRACK, SC_GLOBAL, SC_GRID, SC_MIX, SC_SEQOPT };   /* knobs edit: the selected track, song.g, the STEP grid, the mixer */
+enum { SC_TRACK, SC_GLOBAL, SC_GRID, SC_MIX, SC_SEQOPT, SC_PERFOPT };   /* knobs edit: the selected track, song.g, the STEP grid, the mixer */
 enum { GR_NONE, GR_MODEL, GR_FX, GR_SLCR, GR_GRID, GR_STEPS, GR_SLOTS, GR_MIX, GR_GRIDS, GR_COMP, GR_LFO, GR_RESON /* MNM-1: the AMP envelope */, GR_MOTION, GR_SONG, GR_FILTER,
        GR_LDEST, GR_ARP, GR_MNM };                  /* GR_MNM: the 8-knob view's lower row and strip (ui_draw.c) */
 enum { TAB_NONE, TAB_SYN, TAB_AMP, TAB_FLT, TAB_EFX, TAB_LF1, TAB_LF2, TAB_LF3, TAB_N };
@@ -24,6 +24,7 @@ typedef struct {
 } page_t;
 
 #include "seq_options_ui.h"
+#include "performance_ui.h"
 static int16_t seqopt_value[4];
 
 static const page_t PAGES[] = {
@@ -75,6 +76,12 @@ static const page_t PAGES[] = {
     {"ARP RHYTHM", FAM_GRIDS, SC_SEQOPT, GR_NONE, {SO_LENGTH,SO_RSTEP,SO_RON,SO_ROFF}},
     {"SWING MASK", FAM_SEQ, SC_SEQOPT, GR_NONE, {SO_SWING,SO_SSTEP,SO_SON,0xFF}},
     {"TRANSPOSE", FAM_SEQ, SC_SEQOPT, GR_NONE, {SO_TRANS,SO_SCALE,SO_KEY,SO_PTRANS}},
+    {"ASSIGN VEL", FAM_SND, SC_PERFOPT, GR_NONE, {PO_VDEST1,PO_VAMT1,PO_VDEST2,PO_VAMT2}},
+    {"ASSIGN KEY", FAM_SND, SC_PERFOPT, GR_NONE, {PO_KDEST1,PO_KAMT1,PO_KDEST2,PO_KAMT2}},
+    {"TRIG TRACK", FAM_SND, SC_PERFOPT, GR_NONE, {PO_ROUTE,PO_HP,PO_LP,0xFF}},
+    {"MULTI MODE", FAM_GRIDS, SC_PERFOPT, GR_NONE, {PO_MMODE,PO_MCHANNEL,PO_MKEY,PO_MTRACK}},
+    {"MULTI ENV", FAM_GRIDS, SC_PERFOPT, GR_NONE, {PO_MATK,PO_MDEC,PO_MSUS,PO_MREL}},
+    {"MULTI TIME", FAM_GRIDS, SC_PERFOPT, GR_NONE, {PO_MTIMING,PO_MPORT,0xFF,0xFF}},
     /* HOME's TRACKS mode (spec §3: a HOME tap on HOME; no button of its own): TRACK LEVEL LEN PAN */
     {"TRACKS", FAM_MIX, SC_MIX, GR_MIX, {0xFF, 0xFF, 0xFF, 0xFF}},
 };
@@ -137,6 +144,11 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     *valp = 0;
     if (id == 0xFFu || pg->scope == SC_GRID || pg->scope == SC_MIX)
         return 0;
+    if(pg->scope==SC_PERFOPT){
+        if(id>=PO_COUNT)return 0;
+        seqopt_value[slot&3u]=(int16_t)perfui_get(TSEL,&song.multi,id);
+        *valp=&seqopt_value[slot&3u];return &PO_DESC[id];
+    }
     if(pg->scope==SC_SEQOPT){
         if(id>=SO_COUNT)return 0;
         seqopt_value[slot&3u]=(int16_t)seqopt_get(TSEL,&song.seq,id);

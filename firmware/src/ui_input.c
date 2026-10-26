@@ -485,6 +485,18 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
     v = knob_turn(EN_K1 + slot, d, *vp, steps);
 
+    if(pg->scope==SC_PERFOPT){
+        if(song_lock())return;
+        if(d->fmt==F_ASSIGN){
+            int direction=steps>0?1:-1;
+            while(v>0&&v<P_COUNT&&!perf_destination_valid((unsigned)v))v+=direction;
+            if(!perf_destination_valid((unsigned)v))return;
+        }
+        fm1_irq_off();
+        if(v!=*vp&&id>=PO_MMODE&&id<=PO_MTRACK){multi_stop();if(kz.key)keys_off();}
+        if(perfui_set(TSEL,&song.multi,id,v)&&id<PO_MMODE)preset_touch(TSEL);
+        fm1_irq_on();ui.force=1;return;
+    }
     if(pg->scope==SC_SEQOPT){
         if(song_lock())return;
         if(id==SO_SWING&&v>0&&v<50)v=steps>0?50:0;

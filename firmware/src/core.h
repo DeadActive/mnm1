@@ -17,7 +17,7 @@ enum {
     F_INT, F_PCT, F_BIPCT, F_TIME, F_LFOHZ, F_CUTOFF, F_DB, F_SEMI, F_ENUM, F_BPM, F_NOTE,
     F_ONOFF, F_OCT, F_STEPS, F_CTHR, F_CRAT, F_CATK, F_CREL, F_CMKUP, F_LDEST1, F_LDEST2, F_LDEST3, F_LMULT, F_EQG,
     F_NOTEO, F_RDECAY, F_FDEC,
-    F_AHOLD, F_ADEC                /* MNM-1's AMP: a time, 127 GATE / INF */
+    F_AHOLD, F_ADEC, F_ASSIGN                /* MNM-1's AMP: a time, 127 GATE / INF */
 };
 
 typedef struct {
@@ -160,6 +160,7 @@ static void seq_options_default(seq_options_t *s)
 {
     *s=(seq_options_t){.swing={170,170,170,170,170,170,170,170},.arp_mask={255,255},.arp_len=8,.arp_speed=6};
 }
+#include "performance_options.h"
 /* ------------------------------------------------------------ track --- */
 typedef struct {                 /* one sequencer step (4 B, stored as is); all zero = a plain step, off, at C4 */
     uint8_t on : 1, acc : 1;     /* hit; accent (velocity 127, else 96) */
@@ -188,6 +189,8 @@ typedef struct track {
     /* sequencer */
     step_t step[NSTEP];
     seq_options_t seq;
+    perf_options_t perf;
+    int16_t multi_pitch_ref;
     int8_t nt;                   /* the playing note's offset from C4 (the step's, 0 for MIDI, keys): models read TUNE through dm_tune */
     uint32_t gate_n;             /* ACID: samples until its gate closes, GATE_HELD while the next step decides, 0 closed */
     uint8_t slide_in;            /* ACID: the previous step slides into this one */
@@ -245,6 +248,8 @@ typedef struct {
     uint32_t master_q12;
     int32_t batt_raw;            /* smoothed ADC ch3 (battery divider), 0 = not read yet */
     pattern_options_t seq;
+    multi_options_t multi;
+    int16_t multi_pitch16;
     int16_t act[G_ACT_END-G_COUNT]; /* TOOLS/KIT action knobs, never stored; MUTE: a
                                   * copy of settings.mutebar; METRO: of fx_metro */
     uint8_t mute_q;              /* mutes to flip on the next bar (bit per track; seq.c) */

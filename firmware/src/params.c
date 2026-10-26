@@ -576,6 +576,9 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
     case F_TIME:
         fmt_ms10(val, unit, TIME_MS_X10[v & 127]);
         break;
+    case F_ASSIGN:
+        str_cpy(val,v>0&&v<=P_COUNT?track_desc(TSEL,(unsigned)v-1)->label:"---",6);
+        break;
     case F_LDEST1:                                    /* the knob on the LFO's PAGE, by its label */
     case F_LDEST2:
     case F_LDEST3:

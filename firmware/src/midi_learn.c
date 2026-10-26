@@ -95,13 +95,15 @@ static __attribute__((noinline)) void ml_set(track_t *t, uint32_t id, uint32_t v
     if (*motion_slot(t, id) == nv)
         return;
     lf = song.lfo_in && (t->lon || lfo_own(id));    /* (lfo_track: lon, the LFOs on; an LFO's or a slot's knob) */
-    if (lf)
-        lfo_restore_track(t);
-    t->p[id] = (int16_t)nv;
+    int16_t *controller_base=ctlmod_base_slot(t,id);
+    if(controller_base){*controller_base=(int16_t)nv;ctlmod_refresh(t);}
+    else {
+        if(lf)lfo_restore_track(t);
+        t->p[id]=(int16_t)nv;
+        if(lf)lfo_track(t,0);
+    }
     if (PRE_SOUND(id) || (t->p[P_MODEL] >= MM_MODEL_FIRST && mm_control_desc(id)))
         preset_touch(t);                            /* presets.c: the voice edited */
-    if (lf)
-        lfo_track(t, 0);
 }
 
 /* perf_mh: the PERFORM effects whose learned button is down (perform.c: perf_held = the keys' | these). The ISR, or

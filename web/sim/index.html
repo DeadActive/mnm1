@@ -180,6 +180,7 @@
       <li><b>Trig lanes:</b> STEP knob 2 selects ALL, AMP, FILTER or LFO. Hold a step and turn SELECT to choose its trig type, including trigless and note-off.</li>
       <li><b>Timing:</b> SWING MASK sets a 50–80 amount and the delayed steps; 0 retains legacy swing. PATTERN adds 3/4X and 3/2X speeds. TRANSPOSE sets track amount, scale, key and pattern amount.</li>
       <li><b>ARP:</b> ARP MODE adds KEY, SID and ADD with five playback orders. ARP TRIG sets octave jump and retrigger switches; ARP RHYTHM edits a 16-step rhythm and note offsets.</li>
+      <li><b>Performance:</b> EDIT adds ASSIGN VEL and ASSIGN KEY (two destinations each), plus TRIG TRACK for note forwarding and separate HP/LP tracking. ARP adds MULTI MODE, ENV and TIME: ALL, keyboard SPLIT, sequence START or TRANS, a shared envelope, timing and portamento. The MULTI MIDI channel defaults to 7; OFF preserves individual track input.</li>
       <li><b>Hold a step:</b> KNOB 1 is its chance (PROB, and A/B conditions), KNOB 2 ratchets, KNOB 3 accent, KNOB 4
         SLIDE.</li>
       <li><b>Parameter locks:</b> on STEP, hold a step and press EDIT, ENV, FX or LFO. The 8-knob page opens in LOCK
@@ -220,21 +221,24 @@
 <section id="roadmap" class="doc" aria-labelledby="roadmap-title">
   <header class="doc-head">
     <h2 id="roadmap-title">Roadmap.</h2>
-    <p>0.10 is available now. Hardware stress testing is in progress; some heavy combinations exceed the audio deadline.
-      What remains for 0.11 and 1.0 is listed below. The full list is in
+    <p>0.11 adds performance controls and clearer mixer meters. This remains a beta: a 0.10 stress run reset
+      during an interrupt return, and some heavy combinations exceed the audio deadline. Uninterrupted hardware stability is not yet established.
+      What remains for 1.0 is listed below. The full list is in
       <a href="https://github.com/galfaroth/mnm1/blob/main/docs/ROADMAP.md">docs/ROADMAP.md</a>.</p>
   </header>
   <div class="doc-cols roadmap">
     <div>
-      <h4>Next: 0.11</h4>
+      <h4>Available: 0.11</h4>
       <ul class="doc-list">
         <li>TRIG POS: forward notes between tracks.</li>
         <li>MULTI TRIG, keyboard split and a shared envelope.</li>
         <li>Velocity and keytrack assignments, separate HP/LP tracking switches.</li>
       </ul>
-      <h4>Then: 1.0</h4>
+      <h4>Next: 1.0</h4>
       <ul class="doc-list">
         <li>SONG rows with transpose, tempo, offset, length, mutes, loops and jumps.</li>
+        <li>A demo SONG with kick, snare, melody, parameter locks and phaser transitions.</li>
+        <li>NEW SONG starts an empty arrangement while preserving saved work; reload the demo anytime.</li>
         <li>The expanded pattern/kit/sound library is already implemented.</li>
       </ul>
     </div>

@@ -34,6 +34,7 @@ static int expanded_kit_allowed(void)
 }
 static void expanded_reset_voices(void)
 {
+    multi_stop();ctlmod_reset();
     for(unsigned k=0;k<NTRK;k++){drum_cut(&trk[k]);fxs[k].model=255;}
     mmen_reset_all();mmen_lfo_reset();mmarp_reset();
 }
@@ -77,7 +78,7 @@ static void expanded_pattern_rename(uint32_t slot,const char *name)
     if(!rc&&chain.from==slot+1)name_set(chain.name,name);
     ui_message(rc?"SAVE ERROR":"RENAMED");
 }
-static seq_options_t expanded_chain_options[8][NTRK];
+static seq_options_t expanded_chain_options[8][NTRK] __attribute__((section(".pool")));
 static pattern_options_t expanded_chain_global[8];
 /* Cache before PLAY: the audio interrupt never reads external flash. */
 static uint32_t expanded_chain_prepare(void)
