@@ -144,7 +144,7 @@ as `ota-FM-1_900` while writing; this is not the running firmware's identity.
 
 Download the `.fwsc` from [GitHub Releases](https://github.com/galfaroth/mnm1/releases/latest).
 [Screen capture, 240 × 240 PNG](https://raw.githubusercontent.com/galfaroth/mnm1/main/docs/mnm1-screen.png)
-shows the built-in AFTER HOURS arrangement rendered by the firmware.
+shows FM+ playing with its audio waveform in the firmware oscilloscope.
 
 This identity-only update keeps MNM-1 1.0 project/settings formats. Compatibility
 with arbitrary projects from other firmware is not guaranteed. It does not
