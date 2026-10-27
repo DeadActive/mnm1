@@ -147,6 +147,10 @@ def selftest():
     try:
         globals()["git"] = lambda *a: "A\tfirmware/hal/fm1_ble_hal.h\n"
         assert source_errors("x") == [], "an allowed new HAL file flagged"
+        globals()["git"] = lambda *a: "M\tfirmware/hal/fm1_ble_hal.h\n"
+        assert source_errors("x") == [], "a changed Bluetooth-only HAL file flagged"
+        globals()["git"] = lambda *a: "M\tfirmware/hal/fm1_flash.h\n"
+        assert len(source_errors("x")) == 1, "a changed HAL file of the update path not caught"
         globals()["git"] = lambda *a: "M\tfirmware/src/ota.c\nA\tfirmware/hal/fm1_new.h\n"
         assert len(source_errors("x")) == 2, "a changed source / an unlisted new file not caught"
     finally:
@@ -206,7 +210,9 @@ def selftest():
 
 
 # gate 2a: the update path's sources are the last release's (spec amendment 8). Modified or deleted files fail;
-# added files only as listed (the BLE build's new HAL header and context switch: spec amendment 2)
+# added files only as listed (the BLE build's new HAL header and context switch: spec amendment 2). Those listed files
+# may also change (status M): they are the Bluetooth build's own (app-only, the loader and the plain build never
+# include them), copied from the reference (felucca-ble ble-kit, docs/ble/PORTING.md layer 1)
 SOURCES = ["firmware/src/usb.c", "firmware/src/usb_app.c", "firmware/src/ota.c", "firmware/src/storage.c",
            "firmware/src/libc.c", "firmware/hal", "firmware/loader",
            # the main loop, the start-up and the memory map (frozen): gate 2b links the same core object twice, so a
@@ -261,15 +267,23 @@ def git(*a):
 
 
 def last_release():
-    """the newest drum-v* tag merged into HEAD (each release moves gate 2a's base)"""
-    return git("describe", "--tags", "--abbrev=0", "--match", "drum-v*").strip()
+    """the newest release tag merged into HEAD (each release moves gate 2a's base): MNM-1's v* (its history is its own,
+    no Hortator drum-v* tag is an ancestor), else a drum-v*"""
+    import subprocess
+    from pathlib import Path
+    for pat in ("v[0-9]*", "drum-v*"):
+        r = subprocess.run(["git", "describe", "--tags", "--abbrev=0", "--match", pat],
+                           cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True)
+        if r.returncode == 0:
+            return r.stdout.strip()
+    raise SystemExit("check_update_path: no release tag (v* or drum-v*) in HEAD's history")
 
 
 def source_errors(base):
     errors = []
     for ln in git("diff", "--name-status", base, "--", *SOURCES).splitlines():
         status, path = ln.split("\t", 1)
-        if status == "A" and path in NEW_OK:
+        if status in ("A", "M") and path in NEW_OK:
             continue
         if status == "M" and path == MAIN_C and main_hook_only(git("show", f"{base}:{path}"), worktree_text(path) or ""):
             continue
