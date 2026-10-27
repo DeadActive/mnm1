@@ -1,39 +1,19 @@
 {
- "version": "1.0.0",
- "commit": "1dfe723",
- "date": "2026-10-26",
+ "version": "1.0.1",
+ "commit": "2c7aee4",
+ "date": "2026-10-27",
  "since": [],
  "release": {
-  "version": "1.0.0",
-  "date": "2026-10-26",
+  "version": "1.0.1",
+  "date": "2026-10-27",
   "notes": [
    {
-    "title": "Add SONG RANGE, MIX and FLOW",
-    "text": "Add SONG RANGE, MIX and FLOW: per-row transpose, offset, length, mutes, tempo, counted backward loops and jumps. STOP restores the original tempo, mutes and track options. Offset follows source notes, locks, slides and swing together."
+    "title": "Give MNM-1 its own stable",
+    "text": "Give MNM-1 its own stable USB/package identity, FM-1_61000100, so firmware hubs can distinguish it from other firmware. Sound, controls and saved-data formats are unchanged."
    },
    {
-    "title": "Add SONG FILE with confirmed",
-    "text": "Add SONG FILE with confirmed NEW SONG and reloadable AFTER HOURS demo. The eight-row arrangement uses kick, snare, hats, bass, melody, locks and phaser; built-in phrases occupy no user slots. Saved demo arrangements retain their built-in source references."
-   },
-   {
-    "title": "Preserve MNM3\u2013MNM7 projects and version-one/two/three",
-    "text": "Preserve MNM3\u2013MNM7 projects and version-one/two/three pattern payloads with frozen readers. MNM8 projects occupy 3648 bytes; version-four patterns occupy 3034 bytes."
-   },
-   {
-    "title": "Make SELECT navigate all pages",
-    "text": "Make SELECT navigate all pages in the current family, including appended performance and SONG pages."
-   },
-   {
-    "title": "Distinguish a committed project with",
-    "text": "Distinguish a committed project with a failed startup-bank marker as SAVED; BOOT ERROR. Add read-only USB storage diagnostics with the failing operation, address, error and flash status; no protection flags are changed."
-   },
-   {
-    "title": "Verify all legacy banks through",
-    "text": "Verify all legacy banks through simulated reboot, interrupted writes and write protection; keep the previous committed data on failed saves."
-   },
-   {
-    "title": "Publish the matching 1.0 simulator",
-    "text": "Publish the matching 1.0 simulator and installer; remove the roadmap from the project website."
+    "title": "Publish a GitHub release with",
+    "text": "Publish a GitHub release with the firmware package and a directly linked 240 \u00d7 240 screen capture."
    }
   ]
  }
