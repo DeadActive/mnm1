@@ -17,7 +17,7 @@
 
   web/make_site.py build/felucca-X.Y.fwsc X.Y OUT_DIR [build/felucca-ble-X.Y.fwsc]
 
-The package identity (FM-1_9xx) is read from the package; the device reports it
+The package identity (FM-1_<digits>) is read from the package; the device reports it
 after the install.
 """
 import json
@@ -52,11 +52,11 @@ def product_of(raw):
 
 
 def checked(pkg):
-    """the package's bytes and identity, or a stop: only fm1pkg_make.py packages of a Felucca identity"""
+    """the package's bytes and identity, or a stop: only numeric FM-1 identities with the Felucca loader"""
     raw = Path(pkg).read_bytes()
     product = product_of(raw)
-    if not re.fullmatch(r"FM-1_9\d\d", product):
-        raise SystemExit(f"{pkg}: identity {product!r} is not a Felucca package (FM-1_9xx)")
+    if not re.fullmatch(r"FM-1_\d{1,15}", product):
+        raise SystemExit(f"{pkg}: identity {product!r} is not a valid numeric FM-1 package identity")
     if b"FELUCCA-LOADER-1" not in raw:              # Felucca loader marker: never publish a package with vendor files
         raise SystemExit(f"{pkg}: no Felucca loader in it; the site ships only fm1pkg_make.py packages "
                          "(a package patched from an official one carries vendor files)")

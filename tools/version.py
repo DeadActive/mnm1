@@ -19,6 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 FORM = re.compile(r"(\d+)\.(\d+)\.(\d+)")
 UNRELEASED = "## Unreleased"
+PRODUCT = "FM-1_61000100"  # Stable MNM-1 identity; version is reported separately.
 
 
 def read(root=ROOT):
@@ -70,7 +71,7 @@ def check(build, root=ROOT):
     if page.exists():
         m = re.search(r'"version": ("[^"]*")', page.read_text(encoding="utf-8"))
         label = json.loads(m[1]) if m else None
-        if not (label and re.fullmatch(rf"drum-{re.escape(v)}\+[0-9a-f]+(-dirty)?", label)):
+        if not (label == firmware_string(v) or (label and re.fullmatch(rf"drum-{re.escape(v)}\+[0-9a-f]+(-dirty)?", label))):
             errors.append(f"{page}: installer label {label!r}, expected drum-{v}+<commit>")
     else:
         errors.append(f"{page}: missing (DRUM_PACKAGE=1 ./build.sh writes it)")
@@ -83,6 +84,9 @@ def selftest():
         print(("  ok   " if ok else "  FAIL ") + what)
         if not ok:
             fails.append(what)
+    expect("identity fits the package marker", bool(re.fullmatch(r"FM-1_\d+", PRODUCT)) and len(PRODUCT) <= 20)
+    expect("app fallback matches package identity", f'#define FELUCCA_ID "{PRODUCT}"' in
+           (ROOT / "firmware/src/felucca.c").read_text())
     expect("patch 0.5.0 -> 0.5.1", bumped("0.5.0", "patch") == "0.5.1")
     expect("minor 0.5.3 -> 0.6.0", bumped("0.5.3", "minor") == "0.6.0")
     expect("major 0.9.2 -> 1.0.0", bumped("0.9.2", "major") == "1.0.0")
@@ -112,15 +116,17 @@ def selftest():
         page = b / "site" / "webapp" / "installer" / "index.html"
         page.parent.mkdir(parents=True)
         def label(x):
-            page.write_text("<script>const META = " + json.dumps({"version": x, "product": "FM-1_900"}) + ";</script>")
-        (b / "felucca.bin").write_bytes(b"\x00xDRUM-0.5.0\x00y")
+            page.write_text("<script>const META = " + json.dumps({"version": x, "product": PRODUCT}) + ";</script>")
+        (b / "felucca.bin").write_bytes(b"\x00xMNM1-0.5.0\x00y")
         label("drum-0.5.0+57f7e31")
         expect("a build carrying 0.5.0 passes", check(b, r) == [])
-        (b / "felucca.bin").write_bytes(b"\x00xDRUM-0.5.01\x00y")
+        (b / "felucca.bin").write_bytes(b"\x00xMNM1-0.5.01\x00y")
         expect("a build carrying another version fails", len(check(b, r)) == 1)
-        (b / "felucca.bin").write_bytes(b"\x00xDRUM-0.5.0\x00y")
+        (b / "felucca.bin").write_bytes(b"\x00xMNM1-0.5.0\x00y")
         label("drum-0.5.0+57f7e31-dirty")
         expect("a -dirty label passes", check(b, r) == [])
+        label("MNM1-0.5.0")
+        expect("an explicit release label passes", check(b, r) == [])
         label("drum-57f7e31")
         expect("an installer label without the version fails", len(check(b, r)) == 1)
     return 1 if fails else 0

@@ -196,6 +196,18 @@ def installs():
     image = I.logical_image(raw)
     p = pkgfile("ok.fwsc", raw)
 
+    mnm = TMP / "mnm-identity.fwsc"
+    mnm.write_bytes(package(product="FM-1_61000100"))
+    dev = FakeFM1(I.logical_image(mnm.read_bytes()), identity="FM-1_900", after_write="FM-1_61000100")
+    rc, out, err = cli([str(mnm), "--yes"], dev)
+    ok(rc == 0 and "done: the FM-1 runs FM-1_61000100" in out,
+       "install: legacy identity -> long MNM-1 identity")
+
+    dev = FakeFM1(image, identity="FM-1_61000100", after_write="FM-1_900")
+    rc, out, err = cli([p, "--yes"], dev)
+    ok(rc == 0 and "done: the FM-1 runs FM-1_900" in out,
+       "install: leaving MNM-1 for a legacy identity still works")
+
     dev = FakeFM1(image)
     rc, out, err = cli([p, "--yes"], dev)
     ok(rc == 0 and dev.bad == 0 and dev.upgrades == 2 and dev.served == 11 and "done: the FM-1 runs FM-1_900" in out

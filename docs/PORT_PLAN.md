@@ -257,3 +257,19 @@ results are in RELEASE_1_0_TESTS.md. Device confirmed MNM1-1.0.0; bank-A copies
 both committed and survived reboot, bank B unchanged. Earlier owner SAVE ERROR
 not reproduced; no physical root-cause claim. Public release remains 0.11.0
 pending the remaining device checks. No expanded-library migration yet.
+
+
+### 1.0.1 — dedicated hub identity, 2026-10-27
+
+The Firmware Hub checker reported `FM-1_61000100` free. This is MNM-1's stable
+package/app identity, independent of the ABOUT/console version. The generic
+update loader remains byte-identical to its pinned binary. No DSP, UI or storage
+format changed. Target image: 564244 bytes; data+BSS 96896; pool 335264;
+wide-multiply check unchanged (770 / 272 inherited / no new hazards).
+Package SHA-256: `d44011bf035314c037e16ab36a8e7895d9274732329e1d60e0bd94bd512eabf9`.
+The app contains the new identity and `MNM1-1.0.1`; both package readers agree.
+Host tests cover the long identity, upgrading from the legacy identity and
+leaving it again, OTA staging, and loader flash writes. A 240 × 240 screen
+capture renders the existing AFTER HOURS SONG page in the firmware host harness.
+The FM-1 was not connected for 1.0.1: no new physical install/USB identity test
+is claimed. The preceding 1.0 hardware evidence remains documented separately.

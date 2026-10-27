@@ -14,12 +14,13 @@
 The SDK files come from the JieLi AC79 SDK (AC79_SDK, or --sdk).
 All integrity checks in the format are CRC16 (poly 0x1021, init 0).
 
-  fm1pkg_make.py APP.bin OTA.bin OUT.fwsc [--product FM-1_9XY] [--sdk DIR]
+  fm1pkg_make.py APP.bin OTA.bin OUT.fwsc [--product ID] [--sdk DIR]
 """
 import argparse
 import os
 import struct
 from pathlib import Path
+from version import PRODUCT
 
 APP_SLOT = 0x8DFBC
 FLASH_SIZE = 0x93000
@@ -191,7 +192,7 @@ def main():
     ap.add_argument("app", type=Path)
     ap.add_argument("ota", type=Path)
     ap.add_argument("out", type=Path)
-    ap.add_argument("--product", default="FM-1_900")
+    ap.add_argument("--product", default=PRODUCT)
     ap.add_argument("--key", type=lambda s: int(s, 0), default=KEY)
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()

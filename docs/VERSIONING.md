@@ -1,3 +1,19 @@
+# MNM-1 versions and identity
+
+`VERSION.txt` contains MAJOR.MINOR.PATCH. The stable package/USB identity is
+`FM-1_61000100`, defined by `tools/version.py:PRODUCT`, independent of the version.
+The app fallback in `firmware/src/felucca.c` must match. Firmware Hub's checker
+reported it free on 2026-10-27. The generic, pinned update loader remains
+`ota-FM-1_900`; keep its binary unchanged.
+
+Use `DRUM_PACKAGE=1 python3 tools/build.py` on the configured Ubuntu toolchain.
+Optional `--release X.Y.Z` must match VERSION.txt and never changes the identity.
+The standalone packager defaults to the same MNM-1 identity.
+Publish versioned tags and GitHub Releases with the matching `.fwsc` attached;
+never replace the binary or move the tag of an existing release.
+
+## Historical upstream versioning notes
+
 # Versions of the drum firmware
 
 The drum firmware is numbered `MAJOR.MINOR.PATCH`, starting at **0.5.0** (2026-10-06). The number lives in one
@@ -13,7 +29,7 @@ place, the file `VERSION.txt` at the top of the repository; `CHANGELOG.md` says 
   until then the major stays 0.
 
 A merge with both fixes and a feature is a minor. Upstream Felucca's own numbers (its `v1.0.2` tags, `--release
-X.Y` builds) are separate and unchanged.
+X.Y` builds) are historical; MNM-1 now uses the release command above.
 
 ## Where it shows
 

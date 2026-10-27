@@ -5,6 +5,11 @@ own history is in its repository.
 
 ## Unreleased
 
+## 1.0.1 - 2026-10-27
+
+- Give MNM-1 its own stable USB/package identity, FM-1_61000100, so firmware hubs can distinguish it from other firmware. Sound, controls and saved-data formats are unchanged.
+- Publish a GitHub release with the firmware package and a directly linked 240 × 240 screen capture.
+
 ## 1.0.0 - 2026-10-26
 
 Installed and verified on FM-1. Two bank-A saves passed CRC/readback checks across a restart, bank B remained unchanged, and the owner confirmed panel SAVE works.
