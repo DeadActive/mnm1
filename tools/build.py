@@ -208,6 +208,8 @@ def build_app():
         v = os.environ.get(flag)    # unset: the default in firmware/src/felucca.c
         if v in ("0", "1") and not (flag == "FELUCCA_BLE" and core_ref and not ble):
             flags.append(f"-D{flag}={v}")
+    if (ble or core_ref) and os.environ.get("BLE_CONSOLE") in ("0", "1"):   # (felucca-ble PORTING.md 7: the core's
+        flags.append(f"-DBLE_CONSOLE={os.environ['BLE_CONSOLE']}")         # unit and the BLE unit agree; default 1)
     flags.append(f'-DFELUCCA_ID="{PRODUCT}"')
     flags.append(f'-DFELUCCA_VERSION="{VERSION or drum_version.firmware_string(drum_version.read())}"')
     asm = [("cc", "-c", f"-DFELUCCA_DUAL_CORE={int(dual_core)}", FW / "crt0.S", "-o", OUT / "crt0.o"),
@@ -275,7 +277,11 @@ def build_app():
         lds = FW.joinpath("app_ble.ld").read_text()
         lds, n = re.subn(r"(XIP\s+\(rx\)\s*: ORIGIN = 0x02000120, LENGTH = )0x8DFBC", r"\g<1>0xFFEE0", lds)
         lds, k = re.subn(r"(POOL\s+\(rw\)\s*: ORIGIN = 0x01C20000, LENGTH = )0x54000", r"\g<1>0x5C000", lds)
-        if n != 1 or k != 1:
+        # (MNM-1: .data + .bss may not fit either: RAM 32 KiB larger, the pool after it, both only measured)
+        lds, j = re.subn(r"(RAM\s+\(rwx\)\s*: ORIGIN = 0x01C08000, LENGTH = )96K", r"\g<1>128K", lds)
+        lds = lds.replace("ORIGIN = 0x01C20000, LENGTH = 0x5C000", "ORIGIN = 0x01C28000, LENGTH = 0x5C000")
+        lds = lds.replace("NOINIT (rw)  : ORIGIN = 0x01C7C000", "NOINIT (rw)  : ORIGIN = 0x01C84000")
+        if n != 1 or k != 1 or j != 1:
             raise SystemExit("build: BLE_MEASURE: app_ble.ld's XIP / POOL lines not found")
         script = OUT / "app_ble_measure.ld"
         script.write_text(lds)
