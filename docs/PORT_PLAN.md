@@ -273,3 +273,23 @@ leaving it again, OTA staging, and loader flash writes. A 240 × 240 screen
 capture renders the existing AFTER HOURS SONG page in the firmware host harness.
 The FM-1 was not connected for 1.0.1: no new physical install/USB identity test
 is claimed. The preceding 1.0 hardware evidence remains documented separately.
+
+
+### 1.0.1 — physical validation, 2026-10-27
+
+The owner connected the FM-1 after publication. The exact release package
+(SHA-256 `d44011bf035314c037e16ab36a8e7895d9274732329e1d60e0bd94bd512eabf9`)
+installed successfully from 1.0.0. The running device replied `FM-1_61000100`;
+CDC reported `MNM1-1.0.1`, with the owner's project at 132 BPM / track 4 FM+.
+All four legacy project banks and settings were byte-identical after upgrading.
+Two bank-A saves committed valid header/payload CRCs (sequences 13 and 14), and
+both copies survived an explicit reboot. Banks B, C and D were unchanged.
+Sixteen MIDI note-on/off pairs were received; no reboot, voice shedding or
+core1 timeout occurred. This is a MIDI/render smoke check, not an audio audition.
+
+Physical rollback 1.0.1 → 1.0.0 and re-upgrade 1.0.0 → 1.0.1 both completed.
+All four banks matched the post-save snapshot after that round trip. The device
+was left stopped on 1.0.1 with the new identity and the same 132 BPM project.
+Logs: `build/bench/1.0.1/` (local; project snapshots are not published).
+No stock-V15 round trip, expanded-library migration or full stress benchmark
+was performed in this session. The release binary and version tag are unchanged.
